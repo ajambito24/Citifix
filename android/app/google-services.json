@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1018321680406",
+    "project_id": "citifix-67aa2",
+    "storage_bucket": "citifix-67aa2.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1018321680406:android:0bd6fd9075f92e46161d37",
+        "android_client_info": {
+          "package_name": "com.example.citifix_mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD2WBmrkUQw1D4gAdP2FYmJ45rEYEV-S1Y"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
