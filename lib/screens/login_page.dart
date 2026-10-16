@@ -141,10 +141,20 @@ class _LoginPageState extends State<LoginPage> {
             padding: const EdgeInsets.all(24),
             child: Column(
               children: [
-                const Icon(
-                  Icons.location_city,
-                  size: 80,
-                  color: Colors.blue,
+                // ===== LOGO =====
+                Image.asset(
+                  'assets/logo.png', // <-- replace with your logo path
+                  width: 100,
+                  height: 100,
+                  fit: BoxFit.contain,
+                  errorBuilder: (context, error, stackTrace) {
+                    // Fallback icon if logo is missing
+                    return const Icon(
+                      Icons.location_city,
+                      size: 80,
+                      color: Colors.blue,
+                    );
+                  },
                 ),
                 const SizedBox(height: 10),
                 const Text(

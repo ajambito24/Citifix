@@ -12,20 +12,20 @@ class AuthService {
     required String password,
   }) async {
     try {
-      UserCredential userCredential = await _auth.createUserWithEmailAndPassword(
+      UserCredential userCredential =
+          await _auth.createUserWithEmailAndPassword(
         email: email,
         password: password,
       );
 
-      // Create user data matching your Firestore schema
       await _firestore
           .collection('users')
           .doc(userCredential.user!.uid)
           .set({
-        'fullName': fullName,     // Matches your schema
-        'email': email,            // Matches your schema
-        'role': 'resident',        // Matches your schema
-        'isActive': true,          // Matches your schema
+        'fullName': fullName,
+        'email': email,
+        'role': 'resident',
+        'isActive': true,
         'createdAt': FieldValue.serverTimestamp(),
       });
 
@@ -61,10 +61,8 @@ class AuthService {
       User? user = _auth.currentUser;
       if (user == null) return null;
 
-      DocumentSnapshot document = await _firestore
-          .collection('users')
-          .doc(user.uid)
-          .get();
+      DocumentSnapshot document =
+          await _firestore.collection('users').doc(user.uid).get();
 
       if (document.exists) {
         return document['role'];
@@ -81,10 +79,8 @@ class AuthService {
       User? user = _auth.currentUser;
       if (user == null) return null;
 
-      DocumentSnapshot document = await _firestore
-          .collection('users')
-          .doc(user.uid)
-          .get();
+      DocumentSnapshot document =
+          await _firestore.collection('users').doc(user.uid).get();
 
       if (document.exists) {
         return document.data() as Map<String, dynamic>;
@@ -93,6 +89,27 @@ class AuthService {
     } catch (e) {
       return null;
     }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // UPDATE CURRENT USER PROFILE (name + phone)
+  // ─────────────────────────────────────────────────────────────
+  Future<void> updateUserProfile({
+    required String fullName,
+    required String phone,
+  }) async {
+    final user = _auth.currentUser;
+    if (user == null) {
+      throw Exception('No user is currently signed in.');
+    }
+
+    await _firestore.collection('users').doc(user.uid).set(
+      {
+        'fullName': fullName,
+        'phone': phone,
+      },
+      SetOptions(merge: true), // merge so we don't wipe role/email/etc.
+    );
   }
 
   // LOGOUT

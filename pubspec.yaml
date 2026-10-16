@@ -19,7 +19,6 @@ dependencies:
   firebase_auth: 5.6.2
   cloud_firestore: 5.6.12
   firebase_storage: 12.4.10
-  
 
   http: ^1.1.0
   # Image / GPS
@@ -34,3 +33,9 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  # ===== ASSETS =====
+  assets:
+    - assets/logo.png
+    # If you have more images in the assets folder, use the folder form instead:
+    # - assets/
