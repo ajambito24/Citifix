@@ -10,7 +10,7 @@ class ReportService {
   
   // Your Cloudinary credentials
   final String cloudName = 'e7d4ahld';
-  final String uploadPreset = 'flutter_uploads'; // The preset you created
+  final String uploadPreset = 'Citifix'; // Preset confirmed working by existing reports
 
   // Submit a new report with Cloudinary image upload
   Future<String> submitReport({
@@ -66,10 +66,16 @@ class ReportService {
         'isResolved': false,
       };
 
-      // Add report to Firestore
-      final docRef = await _firestore
-          .collection('reports')
-          .add(reportData);
+      // Create the document reference first (the ID is generated locally,
+      // no network call) so the reference number can be built from it.
+      final docRef = _firestore.collection('reports').doc();
+      final referenceNumber = docRef.id.substring(0, 8).toUpperCase();
+
+      // Add report to Firestore, saving the reference number with it
+      await docRef.set({
+        ...reportData,
+        'referenceNumber': referenceNumber,
+      });
 
       print('✅ Report submitted with Cloudinary image!');
       return docRef.id;

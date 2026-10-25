@@ -1,6 +1,9 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+
+import '../constants/app_colors.dart';
+import '../services/auth_service.dart';
+import '../services/session_service.dart';
+import '../utils/screen_util.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -10,41 +13,107 @@ class RegisterPage extends StatefulWidget {
 }
 
 class _RegisterPageState extends State<RegisterPage> {
-  final nameController = TextEditingController();
+  final authService = AuthService();
+
+  // ===== STEP STATE =====
+  int step = 0;
+  static const stepTitles = ['Personal', 'Address', 'Security'];
+
+  final personalFormKey = GlobalKey<FormState>();
+  final addressFormKey = GlobalKey<FormState>();
+  final securityFormKey = GlobalKey<FormState>();
+
+  // ===== CONTROLLERS =====
+  final firstNameController = TextEditingController();
+  final lastNameController = TextEditingController();
+  final mobileController = TextEditingController();
   final emailController = TextEditingController();
+
+  final streetController = TextEditingController();
+  final barangayController = TextEditingController();
+
   final passwordController = TextEditingController();
   final confirmPasswordController = TextEditingController();
 
+  // ===== TERMS =====
+  bool agreedToTerms = false;
+
   bool obscurePassword = true;
+  bool obscureConfirm = true;
   bool loading = false;
+
+  static const String cityName = 'City of Manila';
 
   @override
   void dispose() {
-    nameController.dispose();
+    firstNameController.dispose();
+    lastNameController.dispose();
+    mobileController.dispose();
     emailController.dispose();
+    streetController.dispose();
+    barangayController.dispose();
     passwordController.dispose();
     confirmPasswordController.dispose();
     super.dispose();
   }
 
+  // ===== TERMS MODAL =====
+  Future<void> openTerms() async {
+    FocusScope.of(context).unfocus();
+
+    final agreed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _TermsSheet(
+        terms: mockTerms,
+        alreadyAgreed: agreedToTerms,
+      ),
+    );
+
+    if (agreed == true && mounted) {
+      setState(() {
+        agreedToTerms = true;
+      });
+    }
+  }
+
+  void onTermsCheckboxTap() {
+    if (agreedToTerms) {
+      // Unticking never needs the modal.
+      setState(() {
+        agreedToTerms = false;
+      });
+    } else {
+      openTerms();
+    }
+  }
+
+  // ===== NAVIGATION =====
+  void nextStep() {
+    final key = step == 0 ? personalFormKey : addressFormKey;
+    if (!(key.currentState?.validate() ?? false)) return;
+
+    FocusScope.of(context).unfocus();
+    setState(() {
+      step++;
+    });
+  }
+
+  void previousStep() {
+    FocusScope.of(context).unfocus();
+    setState(() {
+      step--;
+    });
+  }
+
+  // ===== SUBMIT =====
   Future<void> register() async {
-    final name = nameController.text.trim();
-    final email = emailController.text.trim();
-    final password = passwordController.text.trim();
-    final confirmPassword = confirmPasswordController.text.trim();
+    if (!(securityFormKey.currentState?.validate() ?? false)) return;
 
-    if (name.isEmpty || email.isEmpty || password.isEmpty || confirmPassword.isEmpty) {
-      showMessage('Please complete all fields.');
-      return;
-    }
-
-    if (password != confirmPassword) {
-      showMessage('Passwords do not match.');
-      return;
-    }
-
-    if (password.length < 6) {
-      showMessage('Password must be at least 6 characters.');
+    if (!agreedToTerms) {
+      showMessage('Please read and agree to the Terms and Conditions.');
       return;
     }
 
@@ -52,84 +121,49 @@ class _RegisterPageState extends State<RegisterPage> {
       loading = true;
     });
 
-    try {
-      final credential = await FirebaseAuth.instance
-          .createUserWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
+    final error = await authService.registerResidentFull(
+      firstName: firstNameController.text.trim(),
+      lastName: lastNameController.text.trim(),
+      phone: mobileController.text.trim(),
+      email: emailController.text.trim(),
+      streetAddress: streetController.text.trim(),
+      barangay: barangayController.text.trim(),
+      password: passwordController.text.trim(),
+    );
 
-      final user = credential.user;
+    if (!mounted) return;
 
-      if (user == null) {
-        throw Exception('Registration failed.');
-      }
+    setState(() {
+      loading = false;
+    });
 
-      // Create user data matching your schema
-      final userData = {
-        'fullName': name,        // Matches your schema
-        'email': email,           // Matches your schema
-        'role': 'resident',       // Matches your schema
-        'isActive': true,         // Matches your schema
-        'createdAt': FieldValue.serverTimestamp(),
-        // Optional: Add more fields if needed
-        // 'userId': user.uid,
-        // 'profileImage': '',
-        // 'phoneNumber': '',
-      };
-
-      // Save to Firestore with the correct document structure
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)  // Use UID as document ID
-          .set(userData);
-
-      // Also create a resident document if you have a separate residents collection
-      // Based on your screenshot, it looks like you have a 'resident' document
-      // under the 'users' collection, so the above should work.
-
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Registration successful!'),
-          backgroundColor: Colors.green,
-        ),
-      );
-
-      // Navigate to home
-      Navigator.pushNamedAndRemoveUntil(
-        context,
-        '/home',
-        (route) => false,
-      );
-    } on FirebaseAuthException catch (e) {
-      String message;
-
-      switch (e.code) {
-        case 'email-already-in-use':
-          message = 'This email is already registered.';
-          break;
-        case 'invalid-email':
-          message = 'Invalid email address.';
-          break;
-        case 'weak-password':
-          message = 'Password is too weak.';
-          break;
-        default:
-          message = e.message ?? 'Registration failed.';
-      }
-
-      showMessage(message);
-    } catch (e) {
-      showMessage('Something went wrong: $e');
-    } finally {
-      if (mounted) {
-        setState(() {
-          loading = false;
-        });
-      }
+    if (error != null) {
+      showMessage(error);
+      return;
     }
+
+    // Cache the session so the new user stays logged in.
+    await SessionService.saveSession(
+      uid: authService.currentUser?.uid ?? '',
+      role: 'resident',
+      firstName: firstNameController.text.trim(),
+    );
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Registration successful!'),
+        backgroundColor: AppColors.success,
+      ),
+    );
+
+    // Splash greets the new user, then routes to /home.
+    Navigator.pushNamedAndRemoveUntil(
+      context,
+      '/splash',
+      (route) => false,
+    );
   }
 
   void showMessage(String message) {
@@ -138,138 +172,734 @@ class _RegisterPageState extends State<RegisterPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: Colors.red,
+        backgroundColor: AppColors.error,
       ),
     );
   }
 
+  // ===== VALIDATORS =====
+  String? requiredField(String? value, String label) {
+    if (value == null || value.trim().isEmpty) {
+      return '$label is required.';
+    }
+    return null;
+  }
+
+  String? validateMobile(String? value) {
+    final v = (value ?? '').trim();
+    if (v.isEmpty) return 'Mobile number is required.';
+
+    final valid = RegExp(r'^(09\d{9}|\+639\d{9})$').hasMatch(v);
+    if (!valid) return 'Use 09XXXXXXXXX or +639XXXXXXXXX.';
+    return null;
+  }
+
+  String? validateEmail(String? value) {
+    final v = (value ?? '').trim();
+    if (v.isEmpty) return 'Email address is required.';
+
+    final valid = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(v);
+    if (!valid) return 'Enter a valid email address.';
+    return null;
+  }
+
+  String? validatePassword(String? value) {
+    final v = value ?? '';
+    if (v.isEmpty) return 'Password is required.';
+    if (v.length < 8) return 'Use at least 8 characters.';
+    if (!RegExp(r'[A-Za-z]').hasMatch(v) || !RegExp(r'\d').hasMatch(v)) {
+      return 'Include at least one letter and one number.';
+    }
+    return null;
+  }
+
+  String? validateConfirm(String? value) {
+    if ((value ?? '').isEmpty) return 'Please confirm your password.';
+    if (value != passwordController.text) return 'Passwords do not match.';
+    return null;
+  }
+
+  // ===== UI =====
   @override
   Widget build(BuildContext context) {
+    ScreenUtil.init(context);
+
     return Scaffold(
-      backgroundColor: const Color(0xFFE8EEF7),
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('Create Account'),
-        backgroundColor: Colors.blue,
-        foregroundColor: Colors.white,
+        title: Text(
+          'Create Account',
+          style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.bold),
+        ),
+        centerTitle: true,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        backgroundColor: AppColors.primary,
+        foregroundColor: AppColors.white,
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Card(
-          elevation: 8,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              children: [
-                // Show user avatar or icon
-                const Icon(
-                  Icons.person_add,
-                  size: 80,
-                  color: Colors.blue,
-                ),
-                const SizedBox(height: 20),
-                
-                TextField(
-                  controller: nameController,
-                  decoration: const InputDecoration(
-                    labelText: 'Full Name',
-                    prefixIcon: Icon(Icons.person),
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 15),
-                
-                TextField(
-                  controller: emailController,
-                  keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(
-                    labelText: 'Email',
-                    prefixIcon: Icon(Icons.email),
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 15),
-                
-                TextField(
-                  controller: passwordController,
-                  obscureText: obscurePassword,
-                  decoration: InputDecoration(
-                    labelText: 'Password',
-                    prefixIcon: const Icon(Icons.lock),
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        obscurePassword ? Icons.visibility : Icons.visibility_off,
-                      ),
-                      onPressed: () {
-                        setState(() {
-                          obscurePassword = !obscurePassword;
-                        });
-                      },
+      body: SafeArea(
+        child: ResponsiveBody(
+          alignment: Alignment.topCenter,
+          padding: EdgeInsets.symmetric(horizontal: 20.w, vertical: 20.h),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              buildStepIndicator(),
+              SizedBox(height: 20.h),
+              Container(
+                padding: EdgeInsets.all(22.w),
+                decoration: BoxDecoration(
+                  color: AppColors.white,
+                  borderRadius: BorderRadius.circular(20.r),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.shadow,
+                      blurRadius: 24.r,
+                      offset: Offset(0, 8.h),
                     ),
-                    border: const OutlineInputBorder(),
+                  ],
+                ),
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 250),
+                  child: KeyedSubtree(
+                    key: ValueKey(step),
+                    child: buildCurrentStep(),
                   ),
                 ),
-                const SizedBox(height: 15),
-                
-                TextField(
-                  controller: confirmPasswordController,
-                  obscureText: obscurePassword,
-                  decoration: const InputDecoration(
-                    labelText: 'Confirm Password',
-                    prefixIcon: Icon(Icons.lock_outline),
-                    border: OutlineInputBorder(),
+              ),
+              SizedBox(height: 12.h),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    'Already have an account?',
+                    style: TextStyle(
+                      fontSize: 14.sp,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pushReplacementNamed(context, '/login');
+                    },
+                    child: Text(
+                      'Login',
+                      style: TextStyle(
+                        fontSize: 14.sp,
+                        color: AppColors.primary,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget buildStepIndicator() {
+    final circleSize = 34.w;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: List.generate(stepTitles.length * 2 - 1, (i) {
+        if (i.isOdd) {
+          final lineIndex = i ~/ 2;
+          return Expanded(
+            child: SizedBox(
+              height: circleSize,
+              child: Center(
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 250),
+                  height: 3.h,
+                  margin: EdgeInsets.symmetric(horizontal: 6.w),
+                  decoration: BoxDecoration(
+                    color: lineIndex < step
+                        ? AppColors.primary
+                        : AppColors.border,
+                    borderRadius: BorderRadius.circular(2.r),
                   ),
                 ),
-                const SizedBox(height: 25),
-                
-                SizedBox(
-                  width: double.infinity,
-                  height: 50,
+              ),
+            ),
+          );
+        }
+
+        final index = i ~/ 2;
+        final done = index < step;
+        final active = index == step;
+
+        return Column(
+          children: [
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 250),
+              width: circleSize,
+              height: circleSize,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: done || active ? AppColors.primary : AppColors.white,
+                border: Border.all(
+                  color: done || active ? AppColors.primary : AppColors.border,
+                  width: 2,
+                ),
+                boxShadow: active
+                    ? [
+                        BoxShadow(
+                          color: AppColors.primaryRing,
+                          spreadRadius: 5.w,
+                        ),
+                      ]
+                    : null,
+              ),
+              child: done
+                  ? Icon(Icons.check, size: 18.w, color: AppColors.white)
+                  : Text(
+                      '${index + 1}',
+                      style: TextStyle(
+                        fontSize: 14.sp,
+                        color:
+                            active ? AppColors.white : AppColors.textSecondary,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+            ),
+            SizedBox(height: 8.h),
+            Text(
+              stepTitles[index],
+              style: TextStyle(
+                fontSize: 12.sp,
+                fontWeight: active ? FontWeight.bold : FontWeight.normal,
+                color: active ? AppColors.primary : AppColors.textSecondary,
+              ),
+            ),
+          ],
+        );
+      }),
+    );
+  }
+
+  Widget buildCurrentStep() {
+    switch (step) {
+      case 0:
+        return buildPersonalStep();
+      case 1:
+        return buildAddressStep();
+      default:
+        return buildSecurityStep();
+    }
+  }
+
+  // ----- STEP 1 -----
+  Widget buildPersonalStep() {
+    return Form(
+      key: personalFormKey,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          sectionTitle('Personal Information'),
+          TextFormField(
+            controller: firstNameController,
+            textCapitalization: TextCapitalization.words,
+            style: TextStyle(fontSize: 15.sp),
+            decoration: fieldDecoration('First Name', Icons.person),
+            validator: (v) => requiredField(v, 'First name'),
+          ),
+          SizedBox(height: 16.h),
+          TextFormField(
+            controller: lastNameController,
+            textCapitalization: TextCapitalization.words,
+            style: TextStyle(fontSize: 15.sp),
+            decoration: fieldDecoration('Last Name', Icons.person_outline),
+            validator: (v) => requiredField(v, 'Last name'),
+          ),
+          SizedBox(height: 16.h),
+          TextFormField(
+            controller: mobileController,
+            keyboardType: TextInputType.phone,
+            style: TextStyle(fontSize: 15.sp),
+            decoration: fieldDecoration('Mobile Number', Icons.phone),
+            validator: validateMobile,
+          ),
+          SizedBox(height: 16.h),
+          TextFormField(
+            controller: emailController,
+            keyboardType: TextInputType.emailAddress,
+            style: TextStyle(fontSize: 15.sp),
+            decoration: fieldDecoration('Email Address', Icons.email),
+            validator: validateEmail,
+          ),
+          SizedBox(height: 26.h),
+          primaryButton('NEXT', nextStep),
+        ],
+      ),
+    );
+  }
+
+  // ----- STEP 2 -----
+  Widget buildAddressStep() {
+    return Form(
+      key: addressFormKey,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          sectionTitle('Address Information'),
+          TextFormField(
+            controller: streetController,
+            textCapitalization: TextCapitalization.words,
+            style: TextStyle(fontSize: 15.sp),
+            decoration: fieldDecoration('Street Address', Icons.home),
+            validator: (v) => requiredField(v, 'Street address'),
+          ),
+          SizedBox(height: 16.h),
+          TextFormField(
+            controller: barangayController,
+            textCapitalization: TextCapitalization.words,
+            style: TextStyle(fontSize: 15.sp),
+            decoration: fieldDecoration('Barangay', Icons.location_on),
+            validator: (v) => requiredField(v, 'Barangay'),
+          ),
+          SizedBox(height: 16.h),
+          InputDecorator(
+            decoration: fieldDecoration('City', Icons.location_city).copyWith(
+              fillColor: AppColors.disabledFill,
+            ),
+            child: Text(
+              cityName,
+              style: TextStyle(fontSize: 15.sp),
+            ),
+          ),
+          SizedBox(height: 26.h),
+          Row(
+            children: [
+              Expanded(child: outlineButton('BACK', previousStep)),
+              SizedBox(width: 12.w),
+              Expanded(child: primaryButton('NEXT', nextStep)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ----- STEP 3 -----
+  Widget buildSecurityStep() {
+    return Form(
+      key: securityFormKey,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          sectionTitle('Security & Terms and Conditions'),
+          TextFormField(
+            controller: passwordController,
+            obscureText: obscurePassword,
+            style: TextStyle(fontSize: 15.sp),
+            decoration: fieldDecoration('Password', Icons.lock).copyWith(
+              suffixIcon: IconButton(
+                icon: Icon(
+                  obscurePassword ? Icons.visibility : Icons.visibility_off,
+                  size: 22.w,
+                  color: AppColors.textSecondary,
+                ),
+                onPressed: () {
+                  setState(() {
+                    obscurePassword = !obscurePassword;
+                  });
+                },
+              ),
+            ),
+            validator: validatePassword,
+          ),
+          SizedBox(height: 16.h),
+          TextFormField(
+            controller: confirmPasswordController,
+            obscureText: obscureConfirm,
+            style: TextStyle(fontSize: 15.sp),
+            decoration:
+                fieldDecoration('Confirm Password', Icons.lock_outline)
+                    .copyWith(
+              suffixIcon: IconButton(
+                icon: Icon(
+                  obscureConfirm ? Icons.visibility : Icons.visibility_off,
+                  size: 22.w,
+                  color: AppColors.textSecondary,
+                ),
+                onPressed: () {
+                  setState(() {
+                    obscureConfirm = !obscureConfirm;
+                  });
+                },
+              ),
+            ),
+            validator: validateConfirm,
+          ),
+          SizedBox(height: 20.h),
+          buildTermsCheckbox(),
+          SizedBox(height: 22.h),
+          Row(
+            children: [
+              Expanded(
+                child: outlineButton('BACK', loading ? null : previousStep),
+              ),
+              SizedBox(width: 12.w),
+              Expanded(
+                flex: 2,
+                child: SizedBox(
+                  height: 50.h,
                   child: ElevatedButton(
-                    onPressed: loading ? null : register,
+                    onPressed: (loading || !agreedToTerms) ? null : register,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue,
-                      foregroundColor: Colors.white,
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: AppColors.white,
+                      disabledBackgroundColor:
+                          loading ? AppColors.primary : null,
+                      disabledForegroundColor:
+                          loading ? AppColors.white : null,
+                      elevation: 0,
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(12.r),
                       ),
                     ),
                     child: loading
-                        ? const CircularProgressIndicator(
-                            color: Colors.white,
+                        ? SizedBox(
+                            height: 22.w,
+                            width: 22.w,
+                            child: const CircularProgressIndicator(
+                              color: AppColors.white,
+                              strokeWidth: 2.5,
+                            ),
                           )
-                        : const Text(
-                            'REGISTER',
+                        : Text(
+                            'CREATE ACCOUNT',
                             style: TextStyle(
-                              fontSize: 16,
+                              fontSize: 14.sp,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
                   ),
                 ),
-                
-                const SizedBox(height: 15),
-                
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Text('Already have an account?'),
-                    TextButton(
-                      onPressed: () {
-                        Navigator.pushNamed(context, '/login');
-                      },
-                      child: const Text(
-                        'Login',
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ===== TERMS CHECKBOX ROW =====
+  Widget buildTermsCheckbox() {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(12.r),
+        border: Border.all(
+          color: agreedToTerms ? AppColors.success : Colors.transparent,
+        ),
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 24.w,
+            height: 24.w,
+            child: Checkbox(
+              value: agreedToTerms,
+              onChanged: (_) => onTermsCheckboxTap(),
+              activeColor: AppColors.primary,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(5.r),
+              ),
+            ),
+          ),
+          SizedBox(width: 12.w),
+          Expanded(
+            child: InkWell(
+              onTap: openTerms,
+              borderRadius: BorderRadius.circular(8.r),
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 4.h),
+                child: Text.rich(
+                  TextSpan(
+                    text: 'I agree to the ',
+                    style: TextStyle(
+                      fontSize: 14.sp,
+                      color: AppColors.textPrimary,
+                    ),
+                    children: [
+                      TextSpan(
+                        text: 'Terms and Conditions',
                         style: TextStyle(
-                          color: Colors.blue,
                           fontWeight: FontWeight.bold,
+                          color: AppColors.primary,
+                          decoration: TextDecoration.underline,
+                          decorationColor: AppColors.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ===== SMALL HELPERS =====
+  Widget sectionTitle(String text) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: 20.h),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 20.sp,
+          fontWeight: FontWeight.bold,
+          color: AppColors.primary,
+        ),
+      ),
+    );
+  }
+
+  InputDecoration fieldDecoration(String label, IconData icon) {
+    OutlineInputBorder border(Color color, [double width = 1]) {
+      return OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12.r),
+        borderSide: BorderSide(color: color, width: width),
+      );
+    }
+
+    return InputDecoration(
+      labelText: label,
+      labelStyle: TextStyle(
+        fontSize: 14.sp,
+        color: AppColors.textSecondary,
+      ),
+      prefixIcon: Icon(icon, size: 22.w, color: AppColors.primary),
+      filled: true,
+      fillColor: AppColors.background,
+      contentPadding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 16.h),
+      border: border(Colors.transparent),
+      enabledBorder: border(Colors.transparent),
+      focusedBorder: border(AppColors.primary, 1.6),
+      errorBorder: border(AppColors.error),
+      focusedErrorBorder: border(AppColors.error, 1.6),
+    );
+  }
+
+  Widget primaryButton(String text, VoidCallback? onPressed) {
+    return SizedBox(
+      width: double.infinity,
+      height: 50.h,
+      child: ElevatedButton(
+        onPressed: onPressed,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppColors.primary,
+          foregroundColor: AppColors.white,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12.r),
+          ),
+        ),
+        child: Text(
+          text,
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14.sp),
+        ),
+      ),
+    );
+  }
+
+  Widget outlineButton(String text, VoidCallback? onPressed) {
+    return SizedBox(
+      height: 50.h,
+      child: OutlinedButton(
+        onPressed: onPressed,
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppColors.primary,
+          side: BorderSide(
+            color: onPressed == null ? AppColors.border : AppColors.primary,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12.r),
+          ),
+        ),
+        child: Text(
+          text,
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14.sp),
+        ),
+      ),
+    );
+  }
+}
+
+// ===== TERMS BOTTOM SHEET =====
+// Pops true when the user taps I AGREE after scrolling to the bottom.
+class _TermsSheet extends StatefulWidget {
+  const _TermsSheet({
+    required this.terms,
+    required this.alreadyAgreed,
+  });
+
+  final String terms;
+  final bool alreadyAgreed;
+
+  @override
+  State<_TermsSheet> createState() => _TermsSheetState();
+}
+
+class _TermsSheetState extends State<_TermsSheet> {
+  final ScrollController _scrollController = ScrollController();
+  bool _reachedEnd = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_checkScroll);
+
+    // If the text is short enough that nothing scrolls, enable right away.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _reachedEnd) return;
+      if (_scrollController.hasClients &&
+          _scrollController.position.maxScrollExtent <= 0) {
+        setState(() {
+          _reachedEnd = true;
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_checkScroll);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _checkScroll() {
+    if (_reachedEnd) return;
+    if (!_scrollController.hasClients) return;
+
+    final position = _scrollController.position;
+    if (position.pixels >= position.maxScrollExtent - 8) {
+      setState(() {
+        _reachedEnd = true;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final canAgree = _reachedEnd;
+
+    return Container(
+      height: ScreenUtil.screenHeight * 0.85,
+      decoration: BoxDecoration(
+        color: AppColors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24.r)),
+      ),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: ScreenUtil.maxContentWidth),
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(20.w, 12.h, 20.w, 20.h),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Drag handle
+                Center(
+                  child: Container(
+                    width: 44.w,
+                    height: 5.h,
+                    decoration: BoxDecoration(
+                      color: AppColors.border,
+                      borderRadius: BorderRadius.circular(3.r),
+                    ),
+                  ),
+                ),
+                SizedBox(height: 16.h),
+                Row(
+                  children: [
+                    Container(
+                      width: 40.w,
+                      height: 40.w,
+                      decoration: BoxDecoration(
+                        color: AppColors.primarySoft,
+                        borderRadius: BorderRadius.circular(12.r),
+                      ),
+                      child: Icon(
+                        Icons.description_outlined,
+                        size: 22.w,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                    SizedBox(width: 12.w),
+                    Expanded(
+                      child: Text(
+                        'Terms and Conditions',
+                        style: TextStyle(
+                          fontSize: 18.sp,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.primary,
                         ),
                       ),
                     ),
                   ],
                 ),
+                SizedBox(height: 16.h),
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: AppColors.background,
+                      borderRadius: BorderRadius.circular(12.r),
+                    ),
+                    child: Scrollbar(
+                      controller: _scrollController,
+                      thumbVisibility: true,
+                      child: SingleChildScrollView(
+                        controller: _scrollController,
+                        padding: EdgeInsets.all(16.w),
+                        child: Text(
+                          widget.terms,
+                          style: TextStyle(
+                            fontSize: 13.sp,
+                            height: 1.4,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                SizedBox(height: 10.h),
+                if (!widget.alreadyAgreed && !canAgree)
+                  Padding(
+                    padding: EdgeInsets.only(bottom: 10.h),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.arrow_downward,
+                          size: 14.w,
+                          color: AppColors.textSecondary,
+                        ),
+                        SizedBox(width: 6.w),
+                        Expanded(
+                          child: Text(
+                            'Scroll to the bottom to enable the I Agree button.',
+                            style: TextStyle(
+                              fontSize: 12.sp,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                widget.alreadyAgreed ? _buildCloseOnly() : _buildActions(canAgree),
               ],
             ),
           ),
@@ -277,4 +907,116 @@ class _RegisterPageState extends State<RegisterPage> {
       ),
     );
   }
+
+  Widget _buildCloseOnly() {
+    return SizedBox(
+      height: 50.h,
+      child: OutlinedButton(
+        onPressed: () => Navigator.pop(context, false),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppColors.primary,
+          side: const BorderSide(color: AppColors.primary),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12.r),
+          ),
+        ),
+        child: Text(
+          'CLOSE',
+          style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.bold),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActions(bool canAgree) {
+    return Row(
+      children: [
+        Expanded(
+          child: SizedBox(
+            height: 50.h,
+            child: OutlinedButton(
+              onPressed: () => Navigator.pop(context, false),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                side: const BorderSide(color: AppColors.primary),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12.r),
+                ),
+              ),
+              child: Text(
+                'CANCEL',
+                style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+        ),
+        SizedBox(width: 12.w),
+        Expanded(
+          flex: 2,
+          child: SizedBox(
+            height: 50.h,
+            child: ElevatedButton(
+              onPressed: canAgree ? () => Navigator.pop(context, true) : null,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: AppColors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12.r),
+                ),
+              ),
+              child: Text(
+                'I AGREE',
+                style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }
+
+// ===== MOCK TERMS (replace with real terms later) =====
+const String mockTerms = '''
+CITIFIX MANILA TERMS AND CONDITIONS
+
+Last updated: October 2026
+
+1. Acceptance of Terms
+By creating an account on CitiFix Manila, you agree to be bound by these Terms and Conditions. If you do not agree, please do not use the app.
+
+2. Eligibility
+This app is intended for residents of the City of Manila. You must provide accurate and complete information when registering, including your name, contact details, and address.
+
+3. Purpose of the App
+CitiFix Manila lets residents report community issues such as damaged roads, broken streetlights, uncollected garbage, and other public concerns so they can be reviewed and addressed by the proper city offices.
+
+4. User Responsibilities
+You agree to submit only truthful reports. You will not submit false, misleading, offensive, or spam reports. You are responsible for keeping your login details confidential and for all activity under your account.
+
+5. Reports and Content
+Photos, locations, and descriptions you submit may be reviewed by city personnel and used to address the reported issue. Do not upload images that show private individuals without their consent or any unlawful content.
+
+6. Location Data
+The app may use your device location to pin the exact place of a reported issue. Location data is used only for report handling and is not sold to third parties.
+
+7. Privacy
+We collect your personal information, such as name, mobile number, email, and address, to verify your identity and process your reports. Your information is handled in line with the Data Privacy Act of 2012 (Republic Act No. 10173).
+
+8. Account Suspension
+Accounts that violate these terms, abuse the reporting system, or submit repeated false reports may be suspended or removed without prior notice.
+
+9. No Guarantee of Resolution
+Submitting a report does not guarantee a specific response time or outcome. Resolution depends on the priorities and resources of the responsible city offices.
+
+10. Changes to These Terms
+These terms may be updated from time to time. Continued use of the app after changes means you accept the revised terms.
+
+11. Contact
+For questions about these terms, please contact the CitiFix Manila support team through the app.
+
+By tapping I AGREE, you confirm that you have read and understood these Terms and Conditions.
+
+-- END OF TERMS --
+''';

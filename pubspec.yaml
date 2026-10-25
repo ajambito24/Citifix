@@ -21,15 +21,21 @@ dependencies:
   firebase_storage: 12.4.10
 
   http: ^1.1.0
-  # Image / GPS
   image_picker: ^1.1.2
   geolocator: ^14.0.2
+  shared_preferences: ^2.5.6
+  flutter_animate: ^4.5.2
+  firebase_ai: ^2.2.1
+  firebase_app_check: ^0.3.2+10
+  flutter_map: ^8.3.2
+  latlong2: ^0.10.1
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
 
   flutter_lints: ^6.0.0
+  flutter_native_splash: ^2.4.8
 
 flutter:
   uses-material-design: true

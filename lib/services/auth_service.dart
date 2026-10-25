@@ -1,6 +1,8 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import 'session_service.dart';
+
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -34,6 +36,60 @@ class AuthService {
       return e.message;
     } catch (e) {
       return e.toString();
+    }
+  }
+
+  // REGISTER RESIDENT (full multi-step form)
+  // Returns null on success, or an error message.
+  Future<String?> registerResidentFull({
+    required String firstName,
+    required String lastName,
+    required String phone,
+    required String email,
+    required String streetAddress,
+    required String barangay,
+    required String password,
+  }) async {
+    try {
+      final credential = await _auth.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+
+      final user = credential.user;
+      if (user == null) {
+        return 'Registration failed.';
+      }
+
+      await _firestore.collection('users').doc(user.uid).set({
+        'firstName': firstName,
+        'lastName': lastName,
+        'fullName': '$firstName $lastName', // keeps older screens working
+        'phone': phone,
+        'email': email,
+        'streetAddress': streetAddress,
+        'barangay': barangay,
+        'city': 'Manila',
+        'role': 'resident',
+        'isActive': true,
+        'termsAccepted': true,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      return null;
+    } on FirebaseAuthException catch (e) {
+      switch (e.code) {
+        case 'email-already-in-use':
+          return 'This email is already registered.';
+        case 'invalid-email':
+          return 'Invalid email address.';
+        case 'weak-password':
+          return 'Password is too weak.';
+        default:
+          return e.message ?? 'Registration failed.';
+      }
+    } catch (e) {
+      return 'Something went wrong: $e';
     }
   }
 
@@ -112,8 +168,83 @@ class AuthService {
     );
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // UPDATE CURRENT USER PROFILE (full: name, phone, address)
+  // Email and city are intentionally not editable.
+  // ─────────────────────────────────────────────────────────────
+  Future<void> updateUserProfileFull({
+    required String firstName,
+    required String lastName,
+    required String phone,
+    required String streetAddress,
+    required String barangay,
+  }) async {
+    final user = _auth.currentUser;
+    if (user == null) {
+      throw Exception('No user is currently signed in.');
+    }
+
+    await _firestore.collection('users').doc(user.uid).set(
+      {
+        'firstName': firstName,
+        'lastName': lastName,
+        'fullName': '$firstName $lastName', // keeps older screens working
+        'phone': phone,
+        'streetAddress': streetAddress,
+        'barangay': barangay,
+      },
+      SetOptions(merge: true), // merge so we don't wipe role/email/etc.
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // CHANGE PASSWORD
+  // Re-authenticates with the current password, then updates it.
+  // Returns null on success, or an error message.
+  // ─────────────────────────────────────────────────────────────
+  Future<String?> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final user = _auth.currentUser;
+    final email = user?.email;
+
+    if (user == null || email == null) {
+      return 'No user is currently signed in.';
+    }
+
+    try {
+      final credential = EmailAuthProvider.credential(
+        email: email,
+        password: currentPassword,
+      );
+
+      await user.reauthenticateWithCredential(credential);
+      await user.updatePassword(newPassword);
+
+      return null;
+    } on FirebaseAuthException catch (e) {
+      switch (e.code) {
+        case 'wrong-password':
+        case 'invalid-credential':
+          return 'Current password is incorrect.';
+        case 'weak-password':
+          return 'New password is too weak.';
+        case 'too-many-requests':
+          return 'Too many attempts. Please try again later.';
+        case 'requires-recent-login':
+          return 'Please log in again, then retry.';
+        default:
+          return e.message ?? 'Failed to change password.';
+      }
+    } catch (e) {
+      return 'Something went wrong: $e';
+    }
+  }
+
   // LOGOUT
   Future<void> logout() async {
+    await SessionService.clearSession();
     await _auth.signOut();
   }
 

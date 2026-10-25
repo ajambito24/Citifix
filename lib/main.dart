@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
 
 import 'firebase_options.dart';
 
+import 'screens/opening_splash.dart';
 import 'screens/login_page.dart';
 import 'screens/register_page.dart';
+import 'screens/splash_screen.dart';
 import 'screens/resident/resident_home.dart';
 import 'screens/resident/my_reports.dart';
 import 'screens/resident/map_page.dart';
@@ -17,6 +20,14 @@ void main() async {
 
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
+  );
+
+  // App Check protects Firebase AI Logic (the chatbot) from abuse.
+  // The debug provider is used so the app works when installed by hand
+  // (capstone demo). Switch to Play Integrity before a Play Store release.
+  await FirebaseAppCheck.instance.activate(
+    androidProvider: AndroidProvider.debug,
+    appleProvider: AppleProvider.debug,
   );
 
   runApp(const CitiFixApp());
@@ -36,8 +47,12 @@ class CitiFixApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      initialRoute: '/login',
+      initialRoute: '/',
       routes: {
+        // Opening splash: checks the saved login, then routes onward.
+        '/': (context) => const OpeningSplash(),
+        // Greeting splash: shown only right after a fresh login/register.
+        '/splash': (context) => const SplashScreen(),
         '/login': (context) => const LoginPage(),
         '/register': (context) => const RegisterPage(),
         '/home': (context) => const ResidentHome(),
@@ -48,7 +63,7 @@ class CitiFixApp extends StatelessWidget {
             ),
         '/profile': (context) => const Profile(),
         '/admin': (context) => const AdminHome(),
-        '/report': (context) => const ReportCategory(), // ← Add this route
+        '/report': (context) => const ReportPage(),
       },
     );
   }
