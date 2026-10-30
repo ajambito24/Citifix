@@ -10,6 +10,8 @@ import 'submit_success.dart';
 class ReviewSubmit extends StatefulWidget {
   final String category;
   final String description;
+  final String streetAddress;
+  final String barangay;
   final Uint8List imageBytes;
   final String? imageName;
   final double latitude;
@@ -19,6 +21,8 @@ class ReviewSubmit extends StatefulWidget {
     super.key,
     required this.category,
     required this.description,
+    required this.streetAddress,
+    required this.barangay,
     required this.imageBytes,
     this.imageName,
     required this.latitude,
@@ -38,10 +42,11 @@ class _ReviewSubmitState extends State<ReviewSubmit> {
     });
 
     try {
-      final reportId =
-          await ReportService().submitReport(
+      final reportId = await ReportService().submitReport(
         category: widget.category,
         description: widget.description,
+        streetAddress: widget.streetAddress,
+        barangay: widget.barangay,
         latitude: widget.latitude,
         longitude: widget.longitude,
         imageBytes: widget.imageBytes,
@@ -99,8 +104,7 @@ class _ReviewSubmitState extends State<ReviewSubmit> {
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Column(
-                      crossAxisAlignment:
-                          CrossAxisAlignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
                           'Review Report',
@@ -119,14 +123,20 @@ class _ReviewSubmitState extends State<ReviewSubmit> {
                           widget.description,
                         ),
                         _info(
+                          'Street Address',
+                          widget.streetAddress,
+                        ),
+                        _info(
+                          'Barangay',
+                          widget.barangay,
+                        ),
+                        _info(
                           'Latitude',
-                          widget.latitude
-                              .toStringAsFixed(6),
+                          widget.latitude.toStringAsFixed(6),
                         ),
                         _info(
                           'Longitude',
-                          widget.longitude
-                              .toStringAsFixed(6),
+                          widget.longitude.toStringAsFixed(6),
                         ),
                         const SizedBox(height: 15),
                         const Text(
@@ -137,8 +147,7 @@ class _ReviewSubmitState extends State<ReviewSubmit> {
                         ),
                         const SizedBox(height: 8),
                         ClipRRect(
-                          borderRadius:
-                              BorderRadius.circular(10),
+                          borderRadius: BorderRadius.circular(10),
                           child: Image.memory(
                             widget.imageBytes,
                             width: double.infinity,
@@ -167,11 +176,9 @@ class _ReviewSubmitState extends State<ReviewSubmit> {
 
   Widget _info(String title, String value) {
     return Padding(
-      padding:
-          const EdgeInsets.only(bottom: 15),
+      padding: const EdgeInsets.only(bottom: 15),
       child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             title,
@@ -185,8 +192,7 @@ class _ReviewSubmitState extends State<ReviewSubmit> {
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
               color: Colors.grey.shade100,
-              borderRadius:
-                  BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(8),
             ),
             child: Text(value),
           ),

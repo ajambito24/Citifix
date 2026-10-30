@@ -2,9 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Cached info about the signed-in user.
-/// Firebase Auth remains the source of truth; this only speeds up routing
-/// and the splash greeting. The password is never stored.
+
 class UserSession {
   final String uid;
   final String role;

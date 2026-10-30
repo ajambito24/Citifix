@@ -16,6 +16,8 @@ class ReportService {
   Future<String> submitReport({
     required String category,
     required String description,
+    required String streetAddress,
+    required String barangay,
     required double latitude,
     required double longitude,
     required Uint8List imageBytes,
@@ -52,6 +54,8 @@ class ReportService {
         'userFullName': fullName,
         'category': category,
         'description': description,
+        'streetAddress': streetAddress,
+        'barangay': barangay,
         'latitude': latitude,
         'longitude': longitude,
         'imageUrl': imageUrl,  // Cloudinary URL
@@ -166,25 +170,34 @@ class ReportService {
         .snapshots();
   }
 
-  // Update report status (admin only)
+  // Update report status (admin only). Writes statusHistory in the same
+  // format as update_status.php: {status, at, by}.
   Future<void> updateReportStatus({
     required String reportId,
-    required String status,
+    required String status, // 'pending' | 'in progress' | 'resolved' | 'rejected'
     String? adminNotes,
   }) async {
     try {
-      final updateData = {
-        'status': status,
+      final normalized = status.trim().toLowerCase();
+      final isResolved = normalized == 'resolved';
+
+      final updateData = <String, dynamic>{
+        'status': normalized,
         'updatedAt': FieldValue.serverTimestamp(),
+        'resolvedAt': isResolved ? FieldValue.serverTimestamp() : null,
+        'isResolved': isResolved,
+        // serverTimestamp() isn't allowed inside arrays, so use the device time here.
+        'statusHistory': FieldValue.arrayUnion([
+          {
+            'status': normalized,
+            'at': Timestamp.now(),
+            'by': _auth.currentUser?.email,
+          }
+        ]),
         if (adminNotes != null) 'adminNotes': adminNotes,
-        if (status == 'resolved') 'resolvedAt': FieldValue.serverTimestamp(),
-        if (status == 'resolved') 'isResolved': true,
       };
 
-      await _firestore
-          .collection('reports')
-          .doc(reportId)
-          .update(updateData);
+      await _firestore.collection('reports').doc(reportId).update(updateData);
     } catch (e) {
       throw Exception('Failed to update report: $e');
     }

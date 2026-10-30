@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import 'push_service.dart';
 import 'session_service.dart';
 
 class AuthService {
@@ -243,7 +244,16 @@ class AuthService {
   }
 
   // LOGOUT
+  // Push cleanup (token + topic) must run while still signed in, because
+  // Firestore rules only let the user edit their own document. It is capped
+  // so a bad connection can never block logging out.
   Future<void> logout() async {
+    try {
+      await PushService.instance.clear().timeout(const Duration(seconds: 6));
+    } catch (_) {
+      // ignore — log out regardless
+    }
+
     await SessionService.clearSession();
     await _auth.signOut();
   }

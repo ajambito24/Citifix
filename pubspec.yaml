@@ -19,6 +19,10 @@ dependencies:
   firebase_auth: 5.6.2
   cloud_firestore: 5.6.12
   firebase_storage: 12.4.10
+  firebase_messaging: ^15.2.10
+
+  # Heads-up notifications while the app is open (and the high-importance channel)
+  flutter_local_notifications: ^19.3.0
 
   http: ^1.1.0
   image_picker: ^1.1.2
@@ -29,6 +33,7 @@ dependencies:
   firebase_app_check: ^0.3.2+10
   flutter_map: ^8.3.2
   latlong2: ^0.10.1
+  url_launcher: ^6.3.0
 
 dev_dependencies:
   flutter_test:
@@ -43,5 +48,4 @@ flutter:
   # ===== ASSETS =====
   assets:
     - assets/logo.png
-    # If you have more images in the assets folder, use the folder form instead:
-    # - assets/
+    - assets/manilacityhallbackground.jpg

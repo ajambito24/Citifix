@@ -5,8 +5,11 @@ import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../constants/app_colors.dart';
+import '../../constants/sampaloc_barangays.dart';
 import '../../services/report_service.dart';
 import '../../utils/screen_util.dart';
+import '../../widgets/app_widgets.dart';
+import '../../widgets/barangay_sheet.dart';
 
 // ==================== REPORT PAGE (single widget, 4 steps + success) ====================
 class ReportPage extends StatefulWidget {
@@ -20,19 +23,29 @@ class _ReportPageState extends State<ReportPage> {
   final ReportService _reportService = ReportService();
   final ImagePicker picker = ImagePicker();
   final TextEditingController descriptionController = TextEditingController();
+  final TextEditingController streetController = TextEditingController();
+  final TextEditingController barangayController = TextEditingController();
 
   // ===== STEP STATE =====
   int step = 0;
   static const stepTitles = ['Category', 'Details', 'Location', 'Review'];
 
   // Step 1: category
+  // Always shown as the last choice, even if it isn't in Firestore.
+  static const String othersCategory = 'Others';
   String selectedCategory = '';
 
   // Step 2: details
   Uint8List? imageBytes;
   String? imageName;
 
-  // Step 3: location
+  // Step 3: location (address + GPS)
+  // Display only. Same wording as the register screen.
+  static const String cityName = 'District 4, City of Manila';
+  static const String cityHelper = 'Sampaloc, Barangays 395 to 586';
+
+  // Errors under the address fields only show after the user tried to continue.
+  bool addressTried = false;
   Position? position;
   bool loadingLocation = false;
 
@@ -46,7 +59,24 @@ class _ReportPageState extends State<ReportPage> {
   @override
   void dispose() {
     descriptionController.dispose();
+    streetController.dispose();
+    barangayController.dispose();
     super.dispose();
+  }
+
+  // ===== VALIDATORS (same rules as register) =====
+  String? validateStreet(String value) {
+    if (value.trim().isEmpty) return 'Street address is required.';
+    return null;
+  }
+
+  String? validateBarangay(String value) {
+    final v = value.trim();
+    if (v.isEmpty) return 'Please select your barangay.';
+    if (!sampalocBarangays.contains(v)) {
+      return 'Select a barangay from the list.';
+    }
+    return null;
   }
 
   // ===== NAVIGATION =====
@@ -91,6 +121,15 @@ class _ReportPageState extends State<ReportPage> {
         break;
 
       case 2:
+        setState(() {
+          addressTried = true;
+        });
+
+        if (validateStreet(streetController.text) != null ||
+            validateBarangay(barangayController.text) != null) {
+          return;
+        }
+
         if (position == null) {
           showMessage('Please get your current location first.');
           return;
@@ -99,6 +138,22 @@ class _ReportPageState extends State<ReportPage> {
           step = 3;
         });
         break;
+    }
+  }
+
+  // ===== BARANGAY PICKER =====
+  Future<void> pickBarangay() async {
+    FocusScope.of(context).unfocus();
+
+    final picked = await showBarangayPicker(
+      context,
+      selected: barangayController.text,
+    );
+
+    if (picked != null && mounted) {
+      setState(() {
+        barangayController.text = picked;
+      });
     }
   }
 
@@ -310,6 +365,8 @@ class _ReportPageState extends State<ReportPage> {
       final id = await _reportService.submitReport(
         category: selectedCategory,
         description: descriptionController.text.trim(),
+        streetAddress: streetController.text.trim(),
+        barangay: barangayController.text.trim(),
         latitude: position!.latitude,
         longitude: position!.longitude,
         imageBytes: imageBytes!,
@@ -365,6 +422,8 @@ class _ReportPageState extends State<ReportPage> {
         return Icons.security;
       case 'noise':
         return Icons.volume_up;
+      case 'others':
+        return Icons.more_horiz;
       default:
         return Icons.error_outline;
     }
@@ -599,27 +658,23 @@ class _ReportPageState extends State<ReportPage> {
 
               final docs = snapshot.data?.docs ?? [];
 
-              if (docs.isEmpty) {
-                return Center(
-                  child: Text(
-                    'No categories available.',
-                    style: TextStyle(
-                      fontSize: 14.sp,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                );
+              // Categories from Firestore, without any "Others" of its own:
+              // "Others" is always added once, as the last choice.
+              final names = <String>[];
+              for (final doc in docs) {
+                final data = doc.data() as Map<String, dynamic>;
+                final name = data['name']?.toString() ?? doc.id;
+                if (name.trim().toLowerCase() == othersCategory.toLowerCase()) {
+                  continue;
+                }
+                names.add(name);
               }
+              names.add(othersCategory);
 
               return ListView.builder(
                 padding: EdgeInsets.zero,
-                itemCount: docs.length,
-                itemBuilder: (context, index) {
-                  final data = docs[index].data() as Map<String, dynamic>;
-                  final name = data['name']?.toString() ?? docs[index].id;
-
-                  return categoryTile(name);
-                },
+                itemCount: names.length,
+                itemBuilder: (context, index) => categoryTile(names[index]),
               );
             },
           ),
@@ -866,26 +921,26 @@ class _ReportPageState extends State<ReportPage> {
     );
   }
 
-  // ----- STEP 3: LOCATION -----
+  // ----- STEP 3: LOCATION (address + GPS) -----
   Widget buildLocationStep() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         stepHeader(
           'Your Location',
-          'We need your current location to send help',
+          'Enter the address and confirm your GPS location',
         ),
         SizedBox(height: 16.h),
         Expanded(
-          child: Center(
-            child: SingleChildScrollView(
-              child: Container(
-                width: double.infinity,
-                padding: EdgeInsets.all(24.w),
-                decoration: cardDecoration(),
-                child:
-                    position == null ? buildLocationEmpty() : buildLocationReady(),
-              ),
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                buildAddressCard(),
+                SizedBox(height: 16.h),
+                buildGpsCard(),
+                SizedBox(height: 8.h),
+              ],
             ),
           ),
         ),
@@ -893,12 +948,114 @@ class _ReportPageState extends State<ReportPage> {
     );
   }
 
+  Widget cardTitle(IconData icon, String title) {
+    return Row(
+      children: [
+        Icon(icon, size: 22.w, color: AppColors.primary),
+        SizedBox(width: 8.w),
+        Text(
+          title,
+          style: TextStyle(
+            fontSize: 16.sp,
+            fontWeight: FontWeight.bold,
+            color: AppColors.primary,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget buildAddressCard() {
+    return Container(
+      padding: EdgeInsets.all(18.w),
+      decoration: cardDecoration(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          cardTitle(Icons.location_on_outlined, 'Address'),
+          SizedBox(height: 18.h),
+          TextField(
+            controller: streetController,
+            textCapitalization: TextCapitalization.words,
+            onChanged: (_) {
+              if (addressTried) setState(() {});
+            },
+            style: TextStyle(fontSize: 15.sp),
+            decoration: appFieldDecoration('Street Address', Icons.home)
+                .copyWith(
+              errorText:
+                  addressTried ? validateStreet(streetController.text) : null,
+            ),
+          ),
+          SizedBox(height: 16.h),
+          TextField(
+            controller: barangayController,
+            readOnly: true,
+            showCursor: false,
+            onTap: pickBarangay,
+            style: TextStyle(fontSize: 15.sp),
+            decoration:
+                appFieldDecoration('Barangay', Icons.location_on).copyWith(
+              hintText: 'Select your barangay',
+              hintStyle: TextStyle(
+                fontSize: 13.sp,
+                color: AppColors.textSecondary,
+              ),
+              suffixIcon: Icon(
+                Icons.arrow_drop_down,
+                size: 28.w,
+                color: AppColors.textSecondary,
+              ),
+              errorText: addressTried
+                  ? validateBarangay(barangayController.text)
+                  : null,
+            ),
+          ),
+          SizedBox(height: 16.h),
+          InputDecorator(
+            decoration:
+                appFieldDecoration('City', Icons.location_city, locked: true)
+                    .copyWith(
+              helperText: cityHelper,
+              helperStyle: TextStyle(
+                fontSize: 12.sp,
+                color: AppColors.textSecondary,
+              ),
+            ),
+            child: Text(
+              cityName,
+              style: TextStyle(
+                fontSize: 15.sp,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget buildGpsCard() {
+    return Container(
+      padding: EdgeInsets.all(18.w),
+      decoration: cardDecoration(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          cardTitle(Icons.my_location, 'GPS Location'),
+          SizedBox(height: 18.h),
+          position == null ? buildLocationEmpty() : buildLocationReady(),
+        ],
+      ),
+    );
+  }
+
   Widget buildLocationEmpty() {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        iconBadge(Icons.location_off, AppColors.error),
-        SizedBox(height: 16.h),
+        iconBadge(Icons.location_off, AppColors.error, size: 64),
+        SizedBox(height: 14.h),
         Text(
           'Location not selected',
           style: TextStyle(
@@ -915,7 +1072,7 @@ class _ReportPageState extends State<ReportPage> {
             color: AppColors.textSecondary,
           ),
         ),
-        SizedBox(height: 20.h),
+        SizedBox(height: 18.h),
         if (loadingLocation)
           const CircularProgressIndicator()
         else
@@ -944,8 +1101,8 @@ class _ReportPageState extends State<ReportPage> {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        iconBadge(Icons.check_circle, AppColors.success),
-        SizedBox(height: 16.h),
+        iconBadge(Icons.check_circle, AppColors.success, size: 64),
+        SizedBox(height: 14.h),
         Text(
           'Location Selected',
           style: TextStyle(
@@ -954,7 +1111,7 @@ class _ReportPageState extends State<ReportPage> {
             color: AppColors.success,
           ),
         ),
-        SizedBox(height: 18.h),
+        SizedBox(height: 16.h),
         Container(
           width: double.infinity,
           padding: EdgeInsets.all(16.w),
@@ -1012,15 +1169,15 @@ class _ReportPageState extends State<ReportPage> {
     );
   }
 
-  Widget iconBadge(IconData icon, Color color) {
+  Widget iconBadge(IconData icon, Color color, {double size = 80}) {
     return Container(
-      width: 80.w,
-      height: 80.w,
+      width: size.w,
+      height: size.w,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: color.withAlpha(31),
       ),
-      child: Icon(icon, size: 42.w, color: color),
+      child: Icon(icon, size: (size * 0.52).w, color: color),
     );
   }
 
@@ -1062,7 +1219,17 @@ class _ReportPageState extends State<ReportPage> {
                     Icons.description,
                   ),
                   reviewRow(
-                    'Location',
+                    'Street',
+                    streetController.text.trim(),
+                    Icons.home,
+                  ),
+                  reviewRow(
+                    'Barangay',
+                    barangayController.text.trim(),
+                    Icons.location_city,
+                  ),
+                  reviewRow(
+                    'GPS Location',
                     '${position!.latitude.toStringAsFixed(6)}, '
                         '${position!.longitude.toStringAsFixed(6)}',
                     Icons.location_on,

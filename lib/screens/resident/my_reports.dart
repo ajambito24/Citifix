@@ -29,6 +29,8 @@ Color _statusColor(String status) {
       return AppColors.warning;
     case 'pending':
       return AppColors.error;
+    case 'rejected':
+      return const Color(0xFFB71C1C);
     default:
       return AppColors.textSecondary;
   }
@@ -127,6 +129,14 @@ BoxDecoration _cardDecoration({double radius = 20, double blur = 16}) {
   );
 }
 
+// Stored reference number, or derived from the document ID
+// for older reports that don't have the field.
+String reportReferenceOf(String id, Map<String, dynamic> data) {
+  return (data['referenceNumber'] ??
+          (id.length >= 8 ? id.substring(0, 8) : id).toUpperCase())
+      .toString();
+}
+
 // One report row, with its reference number worked out once.
 class _ReportItem {
   final String id;
@@ -137,15 +147,7 @@ class _ReportItem {
 
   factory _ReportItem.fromDoc(QueryDocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
-    final id = doc.id;
-
-    // Stored reference number, or derived from the document ID
-    // for older reports that don't have the field.
-    final reference = (data['referenceNumber'] ??
-            (id.length >= 8 ? id.substring(0, 8) : id).toUpperCase())
-        .toString();
-
-    return _ReportItem(id, data, reference);
+    return _ReportItem(doc.id, data, reportReferenceOf(doc.id, data));
   }
 
   String get status => (data['status'] ?? 'pending').toString();
@@ -171,6 +173,7 @@ class _MyReportsState extends State<MyReports> {
     ('pending', 'Pending'),
     ('in progress', 'In Progress'),
     ('resolved', 'Resolved'),
+    ('rejected', 'Rejected'),
   ];
 
   @override
@@ -644,6 +647,10 @@ class ReportDetailPage extends StatelessWidget {
     final imageUrl = (report['imageUrl'] ?? '').toString();
     final adminNotes = (report['adminNotes'] ?? '').toString().trim();
 
+    // Newer reports have a typed address; older ones don't (rows are hidden).
+    final street = (report['streetAddress'] ?? '').toString().trim();
+    final barangay = (report['barangay'] ?? '').toString().trim();
+
     final createdAt = report['createdAt'];
     final updatedAt = report['updatedAt'];
     final resolvedAt = report['resolvedAt'];
@@ -746,6 +753,10 @@ class ReportDetailPage extends StatelessWidget {
               ),
               SizedBox(height: 16.h),
 
+              // ===== STATUS HISTORY =====
+              _StatusTimeline(report: report),
+              SizedBox(height: 16.h),
+
               // ===== DETAILS =====
               Container(
                 padding: EdgeInsets.all(18.w),
@@ -768,6 +779,14 @@ class ReportDetailPage extends StatelessWidget {
                       description.isEmpty ? '—' : description,
                     ),
                     SizedBox(height: 16.h),
+                    if (street.isNotEmpty) ...[
+                      _detailRow(Icons.home, 'Street', street),
+                      SizedBox(height: 16.h),
+                    ],
+                    if (barangay.isNotEmpty) ...[
+                      _detailRow(Icons.location_city, 'Barangay', barangay),
+                      SizedBox(height: 16.h),
+                    ],
                     _detailRow(
                       Icons.location_on,
                       'Location',
@@ -882,6 +901,185 @@ class ReportDetailPage extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+// ==================== STATUS TIMELINE ====================
+class _Step {
+  final String key;
+  final bool reached;
+  final dynamic date;
+  _Step(this.key, this.reached, this.date);
+}
+
+class _StatusTimeline extends StatelessWidget {
+  final Map<String, dynamic> report;
+  const _StatusTimeline({required this.report});
+
+  static const _order = ['pending', 'in progress', 'resolved'];
+
+  // Date of the latest history entry for a status.
+  dynamic _dateFor(String key) {
+    final history = report['statusHistory'];
+    dynamic found;
+    if (history is List) {
+      for (final e in history) {
+        if (e is Map && (e['status'] ?? '').toString().toLowerCase() == key) {
+          found = e['at'];
+        }
+      }
+    }
+    if (found is Timestamp) return found;
+    if (key == 'pending') return report['createdAt'];
+    return null;
+  }
+
+  List<_Step> _steps(String current) {
+    // Fallback for older reports that have no history entry for the current status.
+    dynamic currentFallback() =>
+        current == 'resolved' ? report['resolvedAt'] : report['updatedAt'];
+
+    if (current == 'rejected') {
+      final inProgress = _dateFor('in progress');
+      return [
+        _Step('pending', true, _dateFor('pending')),
+        if (inProgress is Timestamp) _Step('in progress', true, inProgress),
+        _Step('rejected', true, _dateFor('rejected') ?? currentFallback()),
+      ];
+    }
+
+    final idx = _order.indexOf(current).clamp(0, _order.length - 1);
+    return List.generate(_order.length, (i) {
+      final key = _order[i];
+      final reached = i <= idx;
+      final date = !reached
+          ? null
+          : (_dateFor(key) ?? (i == idx ? currentFallback() : null));
+      return _Step(key, reached, date);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final current = (report['status'] ?? 'pending').toString().toLowerCase();
+    final steps = _steps(current);
+
+    return Container(
+      padding: EdgeInsets.all(18.w),
+      decoration: _cardDecoration(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Status History',
+            style: TextStyle(
+              fontSize: 16.sp,
+              fontWeight: FontWeight.bold,
+              color: AppColors.primary,
+            ),
+          ),
+          SizedBox(height: 16.h),
+          for (var i = 0; i < steps.length; i++)
+            _row(
+              steps[i],
+              isLast: i == steps.length - 1,
+              nextReached: i + 1 < steps.length && steps[i + 1].reached,
+              isCurrent: steps[i].key == current,
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _row(
+    _Step step, {
+    required bool isLast,
+    required bool nextReached,
+    required bool isCurrent,
+  }) {
+    final color = step.reached ? _statusColor(step.key) : AppColors.border;
+    final date = step.reached
+        ? _formatDate(step.date, withTime: true, fallback: '')
+        : '';
+
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            width: 24.w,
+            child: Column(
+              children: [
+                Container(
+                  width: 22.w,
+                  height: 22.w,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: step.reached ? color : AppColors.white,
+                    border: Border.all(color: color, width: 2),
+                    boxShadow: isCurrent
+                        ? [
+                            BoxShadow(
+                              color: color.withAlpha(70),
+                              blurRadius: 0,
+                              spreadRadius: 4.r,
+                            ),
+                          ]
+                        : null,
+                  ),
+                  child: step.reached
+                      ? Icon(
+                          step.key == 'rejected' ? Icons.close : Icons.check,
+                          size: 14.w,
+                          color: AppColors.white,
+                        )
+                      : null,
+                ),
+                if (!isLast)
+                  Expanded(
+                    child: Container(
+                      width: 2.w,
+                      color: nextReached ? color : AppColors.border,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          SizedBox(width: 14.w),
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(bottom: isLast ? 0 : 20.h),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _statusLabel(step.key),
+                    style: TextStyle(
+                      fontSize: 15.sp,
+                      fontWeight:
+                          step.reached ? FontWeight.bold : FontWeight.normal,
+                      color: step.reached
+                          ? AppColors.textPrimary
+                          : AppColors.textSecondary,
+                    ),
+                  ),
+                  if (date.isNotEmpty) ...[
+                    SizedBox(height: 2.h),
+                    Text(
+                      date,
+                      style: TextStyle(
+                        fontSize: 12.sp,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

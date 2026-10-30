@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../constants/app_colors.dart';
+import '../../constants/sampaloc_barangays.dart';
 import '../../services/auth_service.dart';
 import '../../services/session_service.dart';
 import '../../utils/screen_util.dart';
@@ -34,7 +36,9 @@ class _ProfileState extends State<Profile> {
   String _email = '';
   String _role = 'resident';
 
-  static const String _cityName = 'City of Manila';
+  // Display only. The saved city value is not edited here.
+  static const String _cityName = 'District 4, City of Manila';
+  static const String _cityHelper = 'Sampaloc, Barangays 395 to 586';
 
   bool _isLoading = true;
   bool _isLoggingOut = false;
@@ -106,7 +110,8 @@ class _ProfileState extends State<Profile> {
   void _fillControllers() {
     _firstNameController.text = _firstName;
     _lastNameController.text = _lastName;
-    _phoneController.text = _phone;
+    // Digits only, so older "+63..." numbers fit the new phone rules.
+    _phoneController.text = _phone.replaceAll(RegExp(r'\D'), '');
     _streetController.text = _street;
     _barangayController.text = _barangay;
   }
@@ -125,6 +130,21 @@ class _ProfileState extends State<Profile> {
       _fillControllers(); // revert unsaved changes
       _isEditing = false;
     });
+  }
+
+  Future<void> _pickBarangay() async {
+    FocusScope.of(context).unfocus();
+
+    final picked = await _showBarangayPicker(
+      context,
+      selected: _barangayController.text,
+    );
+
+    if (picked != null && mounted) {
+      setState(() {
+        _barangayController.text = picked;
+      });
+    }
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -241,15 +261,6 @@ class _ProfileState extends State<Profile> {
     if (value == null || value.trim().isEmpty) {
       return '$label is required.';
     }
-    return null;
-  }
-
-  String? _validateMobile(String? value) {
-    final v = (value ?? '').trim();
-    if (v.isEmpty) return 'Mobile number is required.';
-
-    final valid = RegExp(r'^(09\d{9}|\+639\d{9})$').hasMatch(v);
-    if (!valid) return 'Use 09XXXXXXXXX or +639XXXXXXXXX.';
     return null;
   }
 
@@ -401,10 +412,14 @@ class _ProfileState extends State<Profile> {
               ),
               TextFormField(
                 controller: _phoneController,
-                keyboardType: TextInputType.phone,
+                keyboardType: TextInputType.number,
+                inputFormatters: [_PhoneInputFormatter()],
                 style: TextStyle(fontSize: 15.sp),
-                decoration: appFieldDecoration('Mobile Number', Icons.phone),
-                validator: _validateMobile,
+                decoration:
+                    appFieldDecoration('Mobile Number', Icons.phone).copyWith(
+                  hintText: '09XXXXXXXXX or 639XXXXXXXXX',
+                ),
+                validator: _validatePhMobile,
               ),
               _lockedField('Email Address', Icons.email, _email),
             ], 16.h)
@@ -432,13 +447,28 @@ class _ProfileState extends State<Profile> {
               ),
               TextFormField(
                 controller: _barangayController,
-                textCapitalization: TextCapitalization.words,
+                readOnly: true,
+                showCursor: false,
+                onTap: _pickBarangay,
+                autovalidateMode: AutovalidateMode.onUserInteraction,
                 style: TextStyle(fontSize: 15.sp),
                 decoration:
-                    appFieldDecoration('Barangay', Icons.location_on),
-                validator: (v) => _requiredField(v, 'Barangay'),
+                    appFieldDecoration('Barangay', Icons.location_on).copyWith(
+                  hintText: 'Select your barangay',
+                  suffixIcon: Icon(
+                    Icons.arrow_drop_down,
+                    size: 28.w,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+                validator: _validateSampalocBarangay,
               ),
-              _lockedField('City', Icons.location_city, _cityName),
+              _lockedField(
+                'City',
+                Icons.location_city,
+                _cityName,
+                helper: _cityHelper,
+              ),
             ], 16.h)
           : _spaced([
               _infoRow(Icons.home, 'Street Address', _street),
@@ -532,12 +562,19 @@ class _ProfileState extends State<Profile> {
   }
 
   // Locked field (edit mode): email and city
-  Widget _lockedField(String label, IconData icon, String value) {
+  Widget _lockedField(
+    String label,
+    IconData icon,
+    String value, {
+    String? helper,
+  }) {
     return TextFormField(
       initialValue: value,
       enabled: false,
       style: TextStyle(fontSize: 15.sp, color: AppColors.textSecondary),
-      decoration: appFieldDecoration(label, icon, locked: true),
+      decoration: appFieldDecoration(label, icon, locked: true).copyWith(
+        helperText: helper,
+      ),
     );
   }
 
@@ -674,6 +711,276 @@ class _ProfileState extends State<Profile> {
           ),
         ),
       ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// PHONE RULES (same as register)
+// ─────────────────────────────────────────────────────────────
+/// Digits only. Must start with 09 (max 11 digits) or 639 (max 12 digits).
+class _PhoneInputFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    var digits = newValue.text.replaceAll(RegExp(r'\D'), '');
+
+    if (digits.isNotEmpty && digits[0] != '0' && digits[0] != '6') {
+      return oldValue;
+    }
+    if (digits.length > 1) {
+      final prefix = digits.substring(0, 2);
+      if (prefix != '09' && prefix != '63') return oldValue;
+    }
+    // 63 must be followed by 9 (639XXXXXXXXX), same as the validator.
+    if (digits.startsWith('63') && digits.length > 2 && digits[2] != '9') {
+      return oldValue;
+    }
+
+    final maxLength = digits.startsWith('63') ? 12 : 11;
+    if (digits.length > maxLength) {
+      digits = digits.substring(0, maxLength);
+    }
+
+    return TextEditingValue(
+      text: digits,
+      selection: TextSelection.collapsed(offset: digits.length),
+    );
+  }
+}
+
+/// 09XXXXXXXXX (11 digits) or 639XXXXXXXXX (12 digits), digits only.
+String? _validatePhMobile(String? value) {
+  final v = (value ?? '').trim();
+  if (v.isEmpty) return 'Mobile number is required.';
+
+  final valid = RegExp(r'^(09\d{9}|639\d{9})$').hasMatch(v);
+  if (!valid) {
+    return 'Use 09XXXXXXXXX (11 digits) or 639XXXXXXXXX (12 digits).';
+  }
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────
+// BARANGAY PICKER (District 4, same as register)
+// ─────────────────────────────────────────────────────────────
+/// Opens the searchable District 4 barangay list.
+/// Returns the chosen barangay (for example "Barangay 395"), or null.
+Future<String?> _showBarangayPicker(
+  BuildContext context, {
+  String selected = '',
+}) {
+  return showModalBottomSheet<String>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => _BarangaySheet(selected: selected),
+  );
+}
+
+/// Validator for the barangay field: must be one of the District 4 barangays.
+String? _validateSampalocBarangay(String? value) {
+  final v = (value ?? '').trim();
+  if (v.isEmpty) return 'Please select your barangay.';
+  if (!sampalocBarangays.contains(v)) {
+    return 'Select a barangay from the list.';
+  }
+  return null;
+}
+
+class _BarangaySheet extends StatefulWidget {
+  const _BarangaySheet({required this.selected});
+
+  final String selected;
+
+  @override
+  State<_BarangaySheet> createState() => _BarangaySheetState();
+}
+
+class _BarangaySheetState extends State<_BarangaySheet> {
+  final TextEditingController _searchController = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final media = MediaQuery.of(context);
+    final keyboard = media.viewInsets.bottom;
+    final sheetHeight = (media.size.height - keyboard) * 0.85;
+
+    final results = _query.isEmpty
+        ? sampalocBarangays
+        : sampalocBarangays.where((b) => b.contains(_query)).toList();
+
+    return Padding(
+      padding: EdgeInsets.only(bottom: keyboard),
+      child: Container(
+        height: sheetHeight,
+        decoration: BoxDecoration(
+          color: AppColors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24.r)),
+        ),
+        child: Center(
+          child: ConstrainedBox(
+            constraints:
+                const BoxConstraints(maxWidth: ScreenUtil.maxContentWidth),
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(20.w, 12.h, 20.w, 12.h),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Drag handle
+                  Center(
+                    child: Container(
+                      width: 44.w,
+                      height: 5.h,
+                      decoration: BoxDecoration(
+                        color: AppColors.border,
+                        borderRadius: BorderRadius.circular(3.r),
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: 16.h),
+                  Row(
+                    children: [
+                      Container(
+                        width: 40.w,
+                        height: 40.w,
+                        decoration: BoxDecoration(
+                          color: AppColors.primarySoft,
+                          borderRadius: BorderRadius.circular(12.r),
+                        ),
+                        child: Icon(
+                          Icons.location_on,
+                          size: 22.w,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                      SizedBox(width: 12.w),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Select Barangay',
+                              style: TextStyle(
+                                fontSize: 18.sp,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.primary,
+                              ),
+                            ),
+                            Text(
+                              'District 4, Sampaloc',
+                              style: TextStyle(
+                                fontSize: 12.sp,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 14.h),
+                  TextField(
+                    controller: _searchController,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    style: TextStyle(fontSize: 15.sp),
+                    onChanged: (v) => setState(() => _query = v.trim()),
+                    decoration: InputDecoration(
+                      hintText: 'Type a barangay number',
+                      hintStyle: TextStyle(
+                        fontSize: 14.sp,
+                        color: AppColors.textSecondary,
+                      ),
+                      prefixIcon: Icon(
+                        Icons.search,
+                        size: 22.w,
+                        color: AppColors.primary,
+                      ),
+                      suffixIcon: _query.isEmpty
+                          ? null
+                          : IconButton(
+                              icon: Icon(Icons.close, size: 20.w),
+                              onPressed: () {
+                                _searchController.clear();
+                                setState(() => _query = '');
+                              },
+                            ),
+                      filled: true,
+                      fillColor: AppColors.background,
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 16.w,
+                        vertical: 14.h,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12.r),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: 10.h),
+                  Expanded(
+                    child: results.isEmpty
+                        ? Center(
+                            child: Text(
+                              'No barangay found in District 4.',
+                              style: TextStyle(
+                                fontSize: 14.sp,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          )
+                        : ListView.builder(
+                            itemCount: results.length,
+                            itemBuilder: (context, i) {
+                              final name = results[i];
+                              final isSelected = name == widget.selected;
+
+                              return ListTile(
+                                dense: true,
+                                contentPadding: EdgeInsets.symmetric(
+                                  horizontal: 8.w,
+                                ),
+                                title: Text(
+                                  name,
+                                  style: TextStyle(
+                                    fontSize: 15.sp,
+                                    fontWeight: isSelected
+                                        ? FontWeight.bold
+                                        : FontWeight.normal,
+                                    color: isSelected
+                                        ? AppColors.primary
+                                        : AppColors.textPrimary,
+                                  ),
+                                ),
+                                trailing: isSelected
+                                    ? Icon(
+                                        Icons.check,
+                                        size: 20.w,
+                                        color: AppColors.primary,
+                                      )
+                                    : null,
+                                onTap: () => Navigator.pop(context, name),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
