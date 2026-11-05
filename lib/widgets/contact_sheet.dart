@@ -43,41 +43,6 @@ const _cityHall = <_Contact>[
   ),
 ];
 
-const _districtFour = <_Contact>[
-  _Contact(
-    icon: Icons.support_agent,
-    name: 'District 4 (Sampaloc) Hotline',
-    // TODO: add the real number, then set dial.
-    detail: 'Number not added yet',
-  ),
-  _Contact(
-    icon: Icons.apartment,
-    name: 'District 4 Office',
-    // TODO: add the real office address.
-    detail: 'Address not added yet',
-  ),
-];
-
-const _emergency = <_Contact>[
-  _Contact(
-    icon: Icons.emergency,
-    name: 'National Emergency',
-    detail: '911',
-    dial: '911',
-  ),
-  _Contact(
-    icon: Icons.volunteer_activism,
-    name: 'Philippine Red Cross',
-    detail: '143',
-    dial: '143',
-  ),
-  _Contact(
-    icon: Icons.campaign,
-    name: 'Public Complaint Hotline',
-    detail: '8888',
-    dial: '8888',
-  ),
-];
 
 void showContactSheet(BuildContext context) {
   showModalBottomSheet<void>(
@@ -118,8 +83,8 @@ class _ContactSheet extends StatelessWidget {
               ),
               SizedBox(height: 16.h),
               _section(context, 'Manila City Hall', _cityHall),
-              _section(context, 'District 4', _districtFour),
-              _section(context, 'Emergency', _emergency, urgent: true),
+              
+              
             ],
           ),
         ),

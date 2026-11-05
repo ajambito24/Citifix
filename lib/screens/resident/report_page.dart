@@ -1,15 +1,22 @@
 import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:latlong2/latlong.dart' show LatLng;
 
 import '../../constants/app_colors.dart';
 import '../../constants/sampaloc_barangays.dart';
+import '../../constants/sampaloc_boundary.dart';
 import '../../services/report_service.dart';
+import '../../utils/geo_util.dart';
 import '../../utils/screen_util.dart';
 import '../../widgets/app_widgets.dart';
 import '../../widgets/barangay_sheet.dart';
+
+/// How the report location was set.
+enum LocationMode { auto, pin }
 
 // ==================== REPORT PAGE (single widget, 4 steps + success) ====================
 class ReportPage extends StatefulWidget {
@@ -25,6 +32,7 @@ class _ReportPageState extends State<ReportPage> {
   final TextEditingController descriptionController = TextEditingController();
   final TextEditingController streetController = TextEditingController();
   final TextEditingController barangayController = TextEditingController();
+  final MapController mapController = MapController();
 
   // ===== STEP STATE =====
   int step = 0;
@@ -39,14 +47,24 @@ class _ReportPageState extends State<ReportPage> {
   Uint8List? imageBytes;
   String? imageName;
 
-  // Step 3: location (address + GPS)
+  // Step 3: location (address + GPS / map pin)
   // Display only. Same wording as the register screen.
   static const String cityName = 'District 4, City of Manila';
   static const String cityHelper = 'Sampaloc, Barangays 395 to 586';
 
   // Errors under the address fields only show after the user tried to continue.
   bool addressTried = false;
-  Position? position;
+
+  // The one location that gets submitted. Always inside Sampaloc.
+  LatLng? selectedPoint;
+  LocationMode pointSource = LocationMode.auto;
+
+  // Which tab of the location card is showing.
+  LocationMode locationMode = LocationMode.auto;
+
+  // Latest raw GPS reading (used for the blue dot on the pin map).
+  Position? gpsPosition;
+  bool gpsOutside = false;
   bool loadingLocation = false;
 
   // Step 4: review / submit
@@ -61,6 +79,7 @@ class _ReportPageState extends State<ReportPage> {
     descriptionController.dispose();
     streetController.dispose();
     barangayController.dispose();
+    mapController.dispose();
     super.dispose();
   }
 
@@ -116,8 +135,8 @@ class _ReportPageState extends State<ReportPage> {
           step = 2;
         });
 
-        // Fetch the location when reaching this step.
-        if (position == null) getLocation();
+        // Try auto locate when reaching this step.
+        if (selectedPoint == null) getLocation();
         break;
 
       case 2:
@@ -130,8 +149,8 @@ class _ReportPageState extends State<ReportPage> {
           return;
         }
 
-        if (position == null) {
-          showMessage('Please get your current location first.');
+        if (selectedPoint == null) {
+          showMessage('Please set the location of the issue first.');
           return;
         }
         setState(() {
@@ -300,10 +319,11 @@ class _ReportPageState extends State<ReportPage> {
     );
   }
 
-  // ===== LOCATION =====
+  // ===== LOCATION: AUTO (GPS) =====
   Future<void> getLocation() async {
     setState(() {
       loadingLocation = true;
+      gpsOutside = false;
     });
 
     try {
@@ -341,9 +361,26 @@ class _ReportPageState extends State<ReportPage> {
 
       if (!mounted) return;
 
+      final point = LatLng(result.latitude, result.longitude);
+      final inside = isPointInPolygon(point, sampalocBoundary);
+
       setState(() {
-        position = result;
+        gpsPosition = result;
+        gpsOutside = !inside;
+
+        // Only a reading inside Sampaloc is accepted.
+        if (inside) {
+          selectedPoint = point;
+          pointSource = LocationMode.auto;
+        }
       });
+
+      if (!inside) {
+        showMessage(
+          'Your GPS location is outside Sampaloc. '
+          'Use "Pin on Map" to choose a spot inside Sampaloc.',
+        );
+      }
     } catch (e) {
       showMessage('Unable to get location: $e');
     } finally {
@@ -353,6 +390,42 @@ class _ReportPageState extends State<ReportPage> {
         });
       }
     }
+  }
+
+  // ===== LOCATION: MANUAL PIN =====
+  void onMapTap(LatLng point) {
+    if (!isPointInPolygon(point, sampalocBoundary)) {
+      showMessage('Please pin a location inside Sampaloc.');
+      return;
+    }
+
+    setState(() {
+      selectedPoint = point;
+      pointSource = LocationMode.pin;
+    });
+  }
+
+  CameraFit sampalocFit() {
+    return CameraFit.bounds(
+      bounds: LatLngBounds.fromPoints(sampalocBoundary),
+      padding: EdgeInsets.all(24.w),
+    );
+  }
+
+  void recenterMap() {
+    try {
+      mapController.fitCamera(sampalocFit());
+    } catch (_) {
+      // Map not ready yet; ignore.
+    }
+  }
+
+  void setLocationMode(LocationMode mode) {
+    if (locationMode == mode) return;
+    FocusScope.of(context).unfocus();
+    setState(() {
+      locationMode = mode;
+    });
   }
 
   // ===== SUBMIT =====
@@ -367,8 +440,8 @@ class _ReportPageState extends State<ReportPage> {
         description: descriptionController.text.trim(),
         streetAddress: streetController.text.trim(),
         barangay: barangayController.text.trim(),
-        latitude: position!.latitude,
-        longitude: position!.longitude,
+        latitude: selectedPoint!.latitude,
+        longitude: selectedPoint!.longitude,
         imageBytes: imageBytes!,
         imageName: imageName,
       );
@@ -609,7 +682,7 @@ class _ReportPageState extends State<ReportPage> {
       case 2:
         return primaryButton(
           'REVIEW REPORT',
-          position == null || loadingLocation ? null : goNext,
+          selectedPoint == null || loadingLocation ? null : goNext,
         );
       default:
         return primaryButton(
@@ -921,14 +994,14 @@ class _ReportPageState extends State<ReportPage> {
     );
   }
 
-  // ----- STEP 3: LOCATION (address + GPS) -----
+  // ----- STEP 3: LOCATION (address + GPS / map pin) -----
   Widget buildLocationStep() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         stepHeader(
           'Your Location',
-          'Enter the address and confirm your GPS location',
+          'Enter the address and set where the issue is',
         ),
         SizedBox(height: 16.h),
         Expanded(
@@ -1042,14 +1115,86 @@ class _ReportPageState extends State<ReportPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          cardTitle(Icons.my_location, 'GPS Location'),
+          cardTitle(Icons.my_location, 'Issue Location'),
+          SizedBox(height: 14.h),
+          buildModeToggle(),
           SizedBox(height: 18.h),
-          position == null ? buildLocationEmpty() : buildLocationReady(),
+          locationMode == LocationMode.auto
+              ? (selectedPoint == null
+                  ? buildLocationEmpty()
+                  : buildLocationReady())
+              : buildPinMapSection(),
         ],
       ),
     );
   }
 
+  // ----- Mode toggle -----
+  Widget buildModeToggle() {
+    return Container(
+      padding: EdgeInsets.all(4.w),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(14.r),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: modeButton(
+              'Auto Locate',
+              Icons.my_location,
+              LocationMode.auto,
+            ),
+          ),
+          SizedBox(width: 4.w),
+          Expanded(
+            child: modeButton(
+              'Pin on Map',
+              Icons.push_pin,
+              LocationMode.pin,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget modeButton(String label, IconData icon, LocationMode mode) {
+    final active = locationMode == mode;
+
+    return GestureDetector(
+      onTap: () => setLocationMode(mode),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: EdgeInsets.symmetric(vertical: 10.h),
+        decoration: BoxDecoration(
+          color: active ? AppColors.primary : Colors.transparent,
+          borderRadius: BorderRadius.circular(11.r),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
+              size: 18.w,
+              color: active ? AppColors.white : AppColors.textSecondary,
+            ),
+            SizedBox(width: 6.w),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13.sp,
+                fontWeight: FontWeight.bold,
+                color: active ? AppColors.white : AppColors.textSecondary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ----- Auto locate views -----
   Widget buildLocationEmpty() {
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -1057,7 +1202,7 @@ class _ReportPageState extends State<ReportPage> {
         iconBadge(Icons.location_off, AppColors.error, size: 64),
         SizedBox(height: 14.h),
         Text(
-          'Location not selected',
+          gpsOutside ? 'Outside Sampaloc' : 'Location not selected',
           style: TextStyle(
             fontSize: 18.sp,
             fontWeight: FontWeight.bold,
@@ -1066,7 +1211,11 @@ class _ReportPageState extends State<ReportPage> {
         ),
         SizedBox(height: 4.h),
         Text(
-          'Get your current GPS location.',
+          gpsOutside
+              ? 'Your GPS location is outside Sampaloc. '
+                  'Try again or switch to Pin on Map.'
+              : 'Get your current GPS location.',
+          textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: 14.sp,
             color: AppColors.textSecondary,
@@ -1098,6 +1247,8 @@ class _ReportPageState extends State<ReportPage> {
   }
 
   Widget buildLocationReady() {
+    final point = selectedPoint!;
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -1111,6 +1262,16 @@ class _ReportPageState extends State<ReportPage> {
             color: AppColors.success,
           ),
         ),
+        SizedBox(height: 4.h),
+        Text(
+          pointSource == LocationMode.pin
+              ? 'Pinned on the map'
+              : 'From your GPS',
+          style: TextStyle(
+            fontSize: 13.sp,
+            color: AppColors.textSecondary,
+          ),
+        ),
         SizedBox(height: 16.h),
         Container(
           width: double.infinity,
@@ -1122,15 +1283,27 @@ class _ReportPageState extends State<ReportPage> {
           child: Column(
             children: [
               coordinateRow(
-                'Latitude: ${position!.latitude.toStringAsFixed(6)}',
+                'Latitude: ${point.latitude.toStringAsFixed(6)}',
               ),
               SizedBox(height: 10.h),
               coordinateRow(
-                'Longitude: ${position!.longitude.toStringAsFixed(6)}',
+                'Longitude: ${point.longitude.toStringAsFixed(6)}',
               ),
             ],
           ),
         ),
+        if (gpsOutside) ...[
+          SizedBox(height: 10.h),
+          Text(
+            'Your latest GPS reading was outside Sampaloc, '
+            'so the previous location was kept.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 12.sp,
+              color: AppColors.warning,
+            ),
+          ),
+        ],
         SizedBox(height: 10.h),
         if (loadingLocation)
           Padding(
@@ -1146,6 +1319,183 @@ class _ReportPageState extends State<ReportPage> {
               style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.bold),
             ),
           ),
+      ],
+    );
+  }
+
+  // ----- Pin on map view -----
+  Widget buildPinMapSection() {
+    final point = selectedPoint;
+    final gps = gpsPosition;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Tap inside the blue Sampaloc border to drop a pin.',
+          style: TextStyle(
+            fontSize: 13.sp,
+            color: AppColors.textSecondary,
+          ),
+        ),
+        SizedBox(height: 10.h),
+        SizedBox(
+          height: 300.h,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16.r),
+            child: Stack(
+              children: [
+                FlutterMap(
+                  mapController: mapController,
+                  options: MapOptions(
+                    initialCameraFit: sampalocFit(),
+                    minZoom: 12,
+                    maxZoom: 19,
+                    interactionOptions: const InteractionOptions(
+                      flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
+                    ),
+                    onTap: (tapPosition, latLng) => onMapTap(latLng),
+                  ),
+                  children: [
+                    TileLayer(
+                      urlTemplate:
+                          'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                      // Match this to your Android applicationId.
+                      userAgentPackageName: 'com.example.citifix_manila',
+                    ),
+                    PolygonLayer(
+                      polygons: [
+                        Polygon(
+                          points: sampalocBoundary,
+                          color: AppColors.primarySoft,
+                          borderColor: AppColors.primary,
+                          borderStrokeWidth: 3,
+                        ),
+                      ],
+                    ),
+                    // GPS dot for reference, if the user already fetched it.
+                    if (gps != null)
+                      MarkerLayer(
+                        markers: [
+                          Marker(
+                            point: LatLng(gps.latitude, gps.longitude),
+                            width: 22.w,
+                            height: 22.w,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: AppColors.primary,
+                                border: Border.all(
+                                  color: AppColors.white,
+                                  width: 3,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: AppColors.shadow,
+                                    blurRadius: 6.r,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    // The pin. The tip sits on the chosen point.
+                    if (point != null)
+                      MarkerLayer(
+                        markers: [
+                          Marker(
+                            point: point,
+                            width: 40.w,
+                            height: 40.w,
+                            alignment: Alignment.topCenter,
+                            child: Icon(
+                              Icons.location_on,
+                              size: 40.w,
+                              color: AppColors.error,
+                            ),
+                          ),
+                        ],
+                      ),
+                    // Required by OpenStreetMap's tile usage policy.
+                    RichAttributionWidget(
+                      attributions: [
+                        TextSourceAttribution('OpenStreetMap contributors'),
+                      ],
+                    ),
+                  ],
+                ),
+                Positioned(
+                  top: 10.h,
+                  right: 10.w,
+                  child: GestureDetector(
+                    onTap: recenterMap,
+                    child: Container(
+                      width: 40.w,
+                      height: 40.w,
+                      decoration: BoxDecoration(
+                        color: AppColors.white,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.shadow,
+                            blurRadius: 10.r,
+                            offset: Offset(0, 3.h),
+                          ),
+                        ],
+                      ),
+                      child: Icon(
+                        Icons.fit_screen,
+                        size: 20.w,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        SizedBox(height: 12.h),
+        Container(
+          width: double.infinity,
+          padding: EdgeInsets.all(14.w),
+          decoration: BoxDecoration(
+            color: AppColors.background,
+            borderRadius: BorderRadius.circular(12.r),
+          ),
+          child: point == null
+              ? Row(
+                  children: [
+                    Icon(
+                      Icons.info_outline,
+                      size: 20.w,
+                      color: AppColors.textSecondary,
+                    ),
+                    SizedBox(width: 10.w),
+                    Expanded(
+                      child: Text(
+                        'No pin yet. Tap the map to set the location.',
+                        style: TextStyle(
+                          fontSize: 14.sp,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ),
+                  ],
+                )
+              : Column(
+                  children: [
+                    coordinateRow(
+                      'Latitude: ${point.latitude.toStringAsFixed(6)}',
+                    ),
+                    SizedBox(height: 10.h),
+                    coordinateRow(
+                      'Longitude: ${point.longitude.toStringAsFixed(6)}',
+                    ),
+                  ],
+                ),
+        ),
       ],
     );
   }
@@ -1183,6 +1533,8 @@ class _ReportPageState extends State<ReportPage> {
 
   // ----- STEP 4: REVIEW -----
   Widget buildReviewStep() {
+    final point = selectedPoint!;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -1229,9 +1581,11 @@ class _ReportPageState extends State<ReportPage> {
                     Icons.location_city,
                   ),
                   reviewRow(
-                    'GPS Location',
-                    '${position!.latitude.toStringAsFixed(6)}, '
-                        '${position!.longitude.toStringAsFixed(6)}',
+                    pointSource == LocationMode.pin
+                        ? 'Location (Pinned)'
+                        : 'Location (GPS)',
+                    '${point.latitude.toStringAsFixed(6)}, '
+                        '${point.longitude.toStringAsFixed(6)}',
                     Icons.location_on,
                   ),
                   SizedBox(height: 4.h),
@@ -1462,7 +1816,6 @@ class _ReportPageState extends State<ReportPage> {
                       ),
                     ),
                   ),
-                  
                 ],
               ),
             ],

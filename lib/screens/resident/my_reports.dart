@@ -21,7 +21,7 @@ const _months = [
   'Dec',
 ];
 
-Color _statusColor(String status) {
+Color reportStatusColor(String status) {
   switch (status.toLowerCase()) {
     case 'resolved':
       return AppColors.success;
@@ -37,7 +37,7 @@ Color _statusColor(String status) {
 }
 
 // "in progress" -> "In Progress"
-String _statusLabel(String status) {
+String reportStatusLabel(String status) {
   return status
       .split(' ')
       .where((w) => w.isNotEmpty)
@@ -45,7 +45,7 @@ String _statusLabel(String status) {
       .join(' ');
 }
 
-String _formatDate(
+String reportFormatDate(
   dynamic value, {
   bool withTime = false,
   String fallback = 'Recently submitted',
@@ -62,8 +62,8 @@ String _formatDate(
   return '$date, $hour:$minute $period';
 }
 
-Widget _statusPill(String status) {
-  final color = _statusColor(status);
+Widget reportStatusPill(String status) {
+  final color = reportStatusColor(status);
 
   return Container(
     padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 4.h),
@@ -84,7 +84,7 @@ Widget _statusPill(String status) {
         ),
         SizedBox(width: 6.w),
         Text(
-          _statusLabel(status),
+          reportStatusLabel(status),
           style: TextStyle(
             color: color,
             fontWeight: FontWeight.bold,
@@ -96,7 +96,7 @@ Widget _statusPill(String status) {
   );
 }
 
-Widget _referenceChip(String reference) {
+Widget reportReferenceChip(String reference) {
   return Container(
     padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 2.h),
     decoration: BoxDecoration(
@@ -165,8 +165,14 @@ class MyReports extends StatefulWidget {
 
 class _MyReportsState extends State<MyReports> {
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocus = FocusNode();
   String _query = '';
   String _filter = 'all';
+
+  // Created once and reused. If .snapshots() is called inside build(), every
+  // keystroke makes a new stream, the StreamBuilder drops back to "waiting",
+  // the spinner replaces the screen and the search field loses focus.
+  Stream<QuerySnapshot>? _reportsStream;
 
   static const _filters = <(String, String)>[
     ('all', 'All'),
@@ -177,8 +183,22 @@ class _MyReportsState extends State<MyReports> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      _reportsStream = FirebaseFirestore.instance
+          .collection('reports')
+          .where('userId', isEqualTo: user.uid)
+          .snapshots();
+    }
+  }
+
+  @override
   void dispose() {
     _searchController.dispose();
+    _searchFocus.dispose();
     super.dispose();
   }
 
@@ -207,9 +227,7 @@ class _MyReportsState extends State<MyReports> {
   Widget build(BuildContext context) {
     ScreenUtil.init(context);
 
-    final user = FirebaseAuth.instance.currentUser;
-
-    if (user == null) {
+    if (_reportsStream == null) {
       return Scaffold(
         backgroundColor: AppColors.background,
         body: Center(
@@ -240,115 +258,119 @@ class _MyReportsState extends State<MyReports> {
         backgroundColor: AppColors.primary,
         foregroundColor: AppColors.white,
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('reports')
-            .where(
-              'userId',
-              isEqualTo: user.uid,
-            )
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(
-              child: CircularProgressIndicator(),
-            );
-          }
-
-          if (snapshot.hasError) {
-            return _message(
-              icon: Icons.error_outline,
-              color: AppColors.error,
-              title: 'Error loading reports',
-              subtitle: '${snapshot.error}',
-            );
-          }
-
-          final List<QueryDocumentSnapshot> docs = [
-            ...(snapshot.data?.docs ?? <QueryDocumentSnapshot>[]),
-          ];
-
-          if (docs.isEmpty) {
-            return _message(
-              icon: Icons.description_outlined,
-              color: AppColors.primary,
-              title: 'No reports yet',
-              subtitle: 'Your submitted reports will appear here.',
-            );
-          }
-
-          docs.sort((a, b) {
-            final aData = a.data() as Map<String, dynamic>;
-            final bData = b.data() as Map<String, dynamic>;
-            return _millis(bData['createdAt'])
-                .compareTo(_millis(aData['createdAt']));
-          });
-
-          final items = docs.map(_ReportItem.fromDoc).toList();
-          final filtered = items.where(_matches).toList();
-
-          return Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(
-                maxWidth: ScreenUtil.maxContentWidth,
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            maxWidth: ScreenUtil.maxContentWidth,
+          ),
+          child: Column(
+            children: [
+              // The search bar sits outside the StreamBuilder, so it always
+              // lives in the same spot in the widget tree and keeps focus.
+              Padding(
+                padding: EdgeInsets.fromLTRB(16.w, 16.h, 16.w, 0),
+                child: _buildSearchBar(),
               ),
-              child: Column(
-                children: [
-                  Padding(
-                    padding: EdgeInsets.fromLTRB(16.w, 16.h, 16.w, 0),
-                    child: _buildSearchBar(),
-                  ),
-                  SizedBox(height: 12.h),
-                  _buildFilterChips(items),
-                  SizedBox(height: 8.h),
-                  Expanded(
-                    child: filtered.isEmpty
-                        ? _message(
-                            icon: Icons.search_off,
-                            color: AppColors.textSecondary,
-                            title: 'No matching reports',
-                            subtitle: 'Try a different search or filter.',
-                          )
-                        : ListView.builder(
-                            padding: EdgeInsets.fromLTRB(
-                              16.w,
-                              8.h,
-                              16.w,
-                              24.h,
-                            ),
-                            itemCount: filtered.length,
-                            itemBuilder: (context, index) {
-                              final item = filtered[index];
-
-                              return ReportCard(
-                                title: item.category,
-                                description: item.description,
-                                status: item.status,
-                                imageUrl:
-                                    (item.data['imageUrl'] ?? '').toString(),
-                                createdAt: item.data['createdAt'],
-                                referenceNumber: item.reference,
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => ReportDetailPage(
-                                        report: item.data,
-                                        reference: item.reference,
-                                      ),
-                                    ),
-                                  );
-                                },
-                              );
-                            },
-                          ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
+              SizedBox(height: 12.h),
+              Expanded(child: _buildResults()),
+            ],
+          ),
+        ),
       ),
+    );
+  }
+
+  // Filter chips and the report list. Only this part reacts to the stream.
+  Widget _buildResults() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: _reportsStream,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: CircularProgressIndicator(),
+          );
+        }
+
+        if (snapshot.hasError) {
+          return _message(
+            icon: Icons.error_outline,
+            color: AppColors.error,
+            title: 'Error loading reports',
+            subtitle: '${snapshot.error}',
+          );
+        }
+
+        final List<QueryDocumentSnapshot> docs = [
+          ...(snapshot.data?.docs ?? <QueryDocumentSnapshot>[]),
+        ];
+
+        if (docs.isEmpty) {
+          return _message(
+            icon: Icons.description_outlined,
+            color: AppColors.primary,
+            title: 'No reports yet',
+            subtitle: 'Your submitted reports will appear here.',
+          );
+        }
+
+        docs.sort((a, b) {
+          final aData = a.data() as Map<String, dynamic>;
+          final bData = b.data() as Map<String, dynamic>;
+          return _millis(bData['createdAt'])
+              .compareTo(_millis(aData['createdAt']));
+        });
+
+        final items = docs.map(_ReportItem.fromDoc).toList();
+        final filtered = items.where(_matches).toList();
+
+        return Column(
+          children: [
+            _buildFilterChips(items),
+            SizedBox(height: 8.h),
+            Expanded(
+              child: filtered.isEmpty
+                  ? _message(
+                      icon: Icons.search_off,
+                      color: AppColors.textSecondary,
+                      title: 'No matching reports',
+                      subtitle: 'Try a different search or filter.',
+                    )
+                  : ListView.builder(
+                      padding: EdgeInsets.fromLTRB(
+                        16.w,
+                        8.h,
+                        16.w,
+                        24.h,
+                      ),
+                      itemCount: filtered.length,
+                      itemBuilder: (context, index) {
+                        final item = filtered[index];
+
+                        return ReportCard(
+                          title: item.category,
+                          description: item.description,
+                          status: item.status,
+                          imageUrl: (item.data['imageUrl'] ?? '').toString(),
+                          createdAt: item.data['createdAt'],
+                          referenceNumber: item.reference,
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => ReportDetailPage(
+                                  report: item.data,
+                                  reference: item.reference,
+                                ),
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    ),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -357,6 +379,7 @@ class _MyReportsState extends State<MyReports> {
       decoration: _cardDecoration(radius: 14, blur: 12),
       child: TextField(
         controller: _searchController,
+        focusNode: _searchFocus,
         onChanged: (value) {
           setState(() {
             _query = value;
@@ -579,7 +602,7 @@ class ReportCard extends StatelessWidget {
                   ),
                   if (referenceNumber.isNotEmpty) ...[
                     SizedBox(height: 4.h),
-                    _referenceChip(referenceNumber),
+                    reportReferenceChip(referenceNumber),
                   ],
                   SizedBox(height: 6.h),
                   Text(
@@ -595,10 +618,10 @@ class ReportCard extends StatelessWidget {
                   SizedBox(height: 10.h),
                   Row(
                     children: [
-                      _statusPill(status),
+                      reportStatusPill(status),
                       const Spacer(),
                       Text(
-                        _formatDate(createdAt),
+                        reportFormatDate(createdAt),
                         style: TextStyle(
                           fontSize: 11.sp,
                           color: AppColors.textSecondary,
@@ -731,16 +754,16 @@ class ReportDetailPage extends StatelessWidget {
                           ),
                         ),
                         SizedBox(width: 10.w),
-                        _statusPill(status),
+                        reportStatusPill(status),
                       ],
                     ),
                     SizedBox(height: 8.h),
                     Row(
                       children: [
-                        _referenceChip(reference),
+                        reportReferenceChip(reference),
                         SizedBox(width: 10.w),
                         Text(
-                          _formatDate(createdAt),
+                          reportFormatDate(createdAt),
                           style: TextStyle(
                             fontSize: 12.sp,
                             color: AppColors.textSecondary,
@@ -796,7 +819,7 @@ class ReportDetailPage extends StatelessWidget {
                     _detailRow(
                       Icons.event,
                       'Submitted',
-                      _formatDate(
+                      reportFormatDate(
                         createdAt,
                         withTime: true,
                       ),
@@ -806,7 +829,7 @@ class ReportDetailPage extends StatelessWidget {
                       _detailRow(
                         Icons.update,
                         'Last Updated',
-                        _formatDate(updatedAt, withTime: true),
+                        reportFormatDate(updatedAt, withTime: true),
                       ),
                     ],
                     if (resolvedAt is Timestamp) ...[
@@ -814,7 +837,7 @@ class ReportDetailPage extends StatelessWidget {
                       _detailRow(
                         Icons.check_circle_outline,
                         'Resolved',
-                        _formatDate(resolvedAt, withTime: true),
+                        reportFormatDate(resolvedAt, withTime: true),
                       ),
                     ],
                   ],
@@ -998,9 +1021,10 @@ class _StatusTimeline extends StatelessWidget {
     required bool nextReached,
     required bool isCurrent,
   }) {
-    final color = step.reached ? _statusColor(step.key) : AppColors.border;
+    final color =
+        step.reached ? reportStatusColor(step.key) : AppColors.border;
     final date = step.reached
-        ? _formatDate(step.date, withTime: true, fallback: '')
+        ? reportFormatDate(step.date, withTime: true, fallback: '')
         : '';
 
     return IntrinsicHeight(
@@ -1054,7 +1078,7 @@ class _StatusTimeline extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    _statusLabel(step.key),
+                    reportStatusLabel(step.key),
                     style: TextStyle(
                       fontSize: 15.sp,
                       fontWeight:
