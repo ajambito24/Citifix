@@ -22,9 +22,6 @@ void main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
 
-  // App Check protects Firebase AI Logic (the chatbot) from abuse.
-  // The debug provider is used so the app works when installed by hand
-  // (capstone demo). Switch to Play Integrity before a Play Store release.
   await FirebaseAppCheck.instance.activate(
     androidProvider: AndroidProvider.debug,
     appleProvider: AppleProvider.debug,

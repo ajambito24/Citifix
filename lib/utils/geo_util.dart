@@ -1,6 +1,6 @@
 import 'package:latlong2/latlong.dart' show LatLng;
 
-/// Returns true when [point] is inside [polygon] (ray casting).
+
 /// Works with the closed rings used in sampaloc_boundary.dart.
 bool isPointInPolygon(LatLng point, List<LatLng> polygon) {
   if (polygon.length < 3) return false;

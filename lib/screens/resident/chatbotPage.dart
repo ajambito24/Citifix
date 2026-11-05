@@ -15,7 +15,6 @@ class Chatbot extends StatefulWidget {
 }
 
 class _ChatbotState extends State<Chatbot> {
-  // Soft red used for error bubbles (AppColors.error @ 10%).
   static const Color _errorSoft = Color(0x1AF44336);
 
   final ChatController _chat = ChatController();

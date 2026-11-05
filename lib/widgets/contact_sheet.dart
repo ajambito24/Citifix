@@ -4,8 +4,6 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../constants/app_colors.dart';
 import '../../utils/screen_util.dart';
 
-/// One row in the contact sheet. If [dial] is null the row shows no call
-/// button, so unknown numbers never get a fake tap target.
 class _Contact {
   final IconData icon;
   final String name;
@@ -20,9 +18,6 @@ class _Contact {
   });
 }
 
-// ===== EDIT THESE =====
-// Only 911, 143, 8888 and the Manila city government line were found in
-// public sources. Verify the city line and fill in the District 4 numbers.
 const _cityHall = <_Contact>[
   _Contact(
     icon: Icons.location_on,
@@ -38,7 +33,7 @@ const _cityHall = <_Contact>[
   _Contact(
     icon: Icons.schedule,
     name: 'Office Hours',
-    // TODO: confirm with the city office.
+    
     detail: 'Mon to Fri, 8:00 AM to 5:00 PM',
   ),
 ];

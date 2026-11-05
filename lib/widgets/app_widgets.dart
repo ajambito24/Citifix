@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 import '../utils/screen_util.dart';
 
-/// Reusable confirmation modal. Returns true only if the user confirms.
+
 Future<bool> showConfirmDialog(
   BuildContext context, {
   required String title,

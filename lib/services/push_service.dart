@@ -9,22 +9,11 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import '../screens/resident/notifications_screen.dart';
 
-/// Push notification plumbing (FCM).
-/// - Residents only: ResidentHome calls [init], AuthService.logout calls [clear].
-/// - App closed / background: Android shows the push itself, on the
-///   high-importance channel below (sound + heads-up popup).
-/// - App open: FCM shows nothing, so we show the same kind of popup with a
-///   local notification.
-/// - Taps (both kinds) are published on [tap]; ResidentHome routes them with
-///   the same logic as the notification bell.
 class PushService {
   PushService._();
   static final PushService instance = PushService._();
 
   static const String announcementsTopic = 'announcements';
-
-  // Must match com.google.firebase.messaging.default_notification_channel_id
-  // in AndroidManifest.xml.
   static const String _channelId = 'citifix_high';
   static const String _channelName = 'CitiFix notifications';
   static const String _channelDescription =
@@ -189,7 +178,6 @@ class PushService {
     });
   }
 
-  /// data: {type: announcement|report, id: <doc id>}
   NotificationTarget? _targetFrom(dynamic typeValue, dynamic idValue) {
     final type = (typeValue ?? '').toString();
     final id = (idValue ?? '').toString();

@@ -1,8 +1,6 @@
 import 'package:latlong2/latlong.dart';
 
 /// Sampaloc, Manila boundary (OpenStreetMap relation 186448).
-/// Converted from GeoJSON [longitude, latitude] to LatLng(latitude, longitude).
-/// The last point repeats the first, which closes the polygon.
 const List<LatLng> sampalocBoundary = [
   LatLng(14.6260417, 120.9891671),
   LatLng(14.6259446, 120.9891628),

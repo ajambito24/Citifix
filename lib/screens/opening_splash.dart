@@ -8,10 +8,6 @@ import '../constants/app_colors.dart';
 import '../services/session_service.dart';
 import '../utils/screen_util.dart';
 
-/// App-launch splash.
-/// - Plays the animation while checking if the user is still signed in.
-/// - Signed in  -> "Hello, <name>" fades in, then goes to /home or /admin.
-/// - Signed out -> goes to /login.
 class OpeningSplash extends StatefulWidget {
   const OpeningSplash({super.key});
 

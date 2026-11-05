@@ -2,8 +2,6 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-/// Lightweight responsive helper (no external package).
-///
 /// Usage:
 ///   1. Call `ScreenUtil.init(context)` at the top of each screen's build().
 ///   2. Use `16.w`, `16.h`, `16.sp`, `16.r` instead of fixed numbers.

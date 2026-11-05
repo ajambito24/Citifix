@@ -10,7 +10,7 @@ class ReportService {
   
   // Your Cloudinary credentials
   final String cloudName = 'e7d4ahld';
-  final String uploadPreset = 'Citifix'; // Preset confirmed working by existing reports
+  final String uploadPreset = 'Citifix'; 
 
   // Submit a new report with Cloudinary image upload
   Future<String> submitReport({
@@ -206,7 +206,7 @@ class ReportService {
   // Delete a report
   Future<void> deleteReport(String reportId) async {
     try {
-      // Delete the report document from Firestore
+      
       await _firestore
           .collection('reports')
           .doc(reportId)

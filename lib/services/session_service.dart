@@ -70,8 +70,6 @@ class SessionService {
   }
 
   /// Rebuilds the cache from Firestore when the user is still signed in to
-  /// Firebase but the cache is empty or belongs to another account.
-  /// Returns null if the profile can't be fetched (e.g. offline).
   static Future<UserSession?> restoreFromFirebase(User user) async {
     try {
       final db = FirebaseFirestore.instance;

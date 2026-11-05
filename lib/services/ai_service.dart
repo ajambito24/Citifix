@@ -13,10 +13,9 @@ class AiServiceException implements Exception {
   String toString() => message;
 }
 
-/// Talks to Gemini through Firebase AI Logic (Gemini Developer API).
+
 /// Keeps one chat session so the model remembers earlier messages.
 class AiService {
-  /// Change this one line if Google retires or renames the model.
   static const String modelName = 'gemini-3.5-flash-lite';
 
   late final GenerativeModel _model = FirebaseAI.googleAI().generativeModel(

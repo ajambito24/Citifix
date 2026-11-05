@@ -32,7 +32,7 @@ class AuthService {
         'createdAt': FieldValue.serverTimestamp(),
       });
 
-      return null; // Success
+      return null; 
     } on FirebaseAuthException catch (e) {
       return e.message;
     } catch (e) {
@@ -41,7 +41,6 @@ class AuthService {
   }
 
   // REGISTER RESIDENT (full multi-step form)
-  // Returns null on success, or an error message.
   Future<String?> registerResidentFull({
     required String firstName,
     required String lastName,
@@ -65,7 +64,7 @@ class AuthService {
       await _firestore.collection('users').doc(user.uid).set({
         'firstName': firstName,
         'lastName': lastName,
-        'fullName': '$firstName $lastName', // keeps older screens working
+        'fullName': '$firstName $lastName', 
         'phone': phone,
         'email': email,
         'streetAddress': streetAddress,

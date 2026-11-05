@@ -5,9 +5,6 @@ import '../constants/app_colors.dart';
 import '../constants/sampaloc_barangays.dart';
 import '../utils/screen_util.dart';
 
-/// Opens the barangay picker (search box + list).
-/// Returns the chosen barangay (for example "Barangay 395"),
-/// or null if the sheet was dismissed.
 Future<String?> showBarangayPicker(
   BuildContext context, {
   String selected = '',
@@ -22,7 +19,6 @@ Future<String?> showBarangayPicker(
 }
 
 // ===== BARANGAY BOTTOM SHEET =====
-// Pops the chosen barangay (for example "Barangay 395").
 class BarangaySheet extends StatefulWidget {
   const BarangaySheet({super.key, required this.selected});
 

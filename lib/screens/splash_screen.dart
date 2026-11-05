@@ -7,8 +7,6 @@ import '../constants/app_colors.dart';
 import '../services/session_service.dart';
 import '../utils/screen_util.dart';
 
-/// Greeting splash shown right after a fresh login or register.
-/// Greets the user by first name, then routes to /admin or /home by role.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
