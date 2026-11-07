@@ -21,24 +21,28 @@ const _months = [
   'Dec',
 ];
 
+// Only three statuses exist: pending, resolved, rejected.
+// Old "in progress" reports (and anything unknown) are shown as pending.
+String normalizeReportStatus(String status) {
+  final s = status.trim().toLowerCase().replaceAll('_', ' ');
+  if (s == 'resolved' || s == 'rejected') return s;
+  return 'pending';
+}
+
 Color reportStatusColor(String status) {
-  switch (status.toLowerCase()) {
+  switch (normalizeReportStatus(status)) {
     case 'resolved':
       return AppColors.success;
-    case 'in progress':
-      return AppColors.warning;
-    case 'pending':
-      return AppColors.error;
     case 'rejected':
       return const Color(0xFFB71C1C);
     default:
-      return AppColors.textSecondary;
+      return AppColors.error; // pending
   }
 }
 
-// "in progress" -> "In Progress"
+// "pending" -> "Pending"
 String reportStatusLabel(String status) {
-  return status
+  return normalizeReportStatus(status)
       .split(' ')
       .where((w) => w.isNotEmpty)
       .map((w) => w[0].toUpperCase() + w.substring(1))
@@ -150,7 +154,9 @@ class _ReportItem {
     return _ReportItem(doc.id, data, reportReferenceOf(doc.id, data));
   }
 
-  String get status => (data['status'] ?? 'pending').toString();
+  // Always one of: pending, resolved, rejected.
+  String get status =>
+      normalizeReportStatus((data['status'] ?? 'pending').toString());
   String get category => (data['category'] ?? 'Issue').toString();
   String get description => (data['description'] ?? '').toString();
 }
@@ -177,7 +183,6 @@ class _MyReportsState extends State<MyReports> {
   static const _filters = <(String, String)>[
     ('all', 'All'),
     ('pending', 'Pending'),
-    ('in progress', 'In Progress'),
     ('resolved', 'Resolved'),
     ('rejected', 'Rejected'),
   ];
@@ -210,7 +215,7 @@ class _MyReportsState extends State<MyReports> {
   }
 
   bool _matches(_ReportItem item) {
-    if (_filter != 'all' && item.status.toLowerCase() != _filter) {
+    if (_filter != 'all' && item.status != _filter) {
       return false;
     }
 
@@ -220,7 +225,7 @@ class _MyReportsState extends State<MyReports> {
     return item.category.toLowerCase().contains(q) ||
         item.description.toLowerCase().contains(q) ||
         item.reference.toLowerCase().contains(q) ||
-        item.status.toLowerCase().contains(q);
+        item.status.contains(q);
   }
 
   @override
@@ -422,7 +427,7 @@ class _MyReportsState extends State<MyReports> {
   Widget _buildFilterChips(List<_ReportItem> items) {
     int countFor(String key) {
       if (key == 'all') return items.length;
-      return items.where((i) => i.status.toLowerCase() == key).length;
+      return items.where((i) => i.status == key).length;
     }
 
     return SizedBox(
@@ -666,9 +671,14 @@ class ReportDetailPage extends StatelessWidget {
 
     final category = (report['category'] ?? 'Issue').toString();
     final description = (report['description'] ?? '').toString();
-    final status = (report['status'] ?? 'pending').toString();
+    final status =
+        normalizeReportStatus((report['status'] ?? 'pending').toString());
     final imageUrl = (report['imageUrl'] ?? '').toString();
     final adminNotes = (report['adminNotes'] ?? '').toString().trim();
+
+    // Photo the assigned admin attached when resolving the report.
+    final resolutionImageUrl =
+        (report['resolutionImageUrl'] ?? '').toString().trim();
 
     // Newer reports have a typed address; older ones don't (rows are hidden).
     final street = (report['streetAddress'] ?? '').toString().trim();
@@ -780,6 +790,57 @@ class ReportDetailPage extends StatelessWidget {
               _StatusTimeline(report: report),
               SizedBox(height: 16.h),
 
+              // ===== RESOLUTION PHOTO (only when resolved and a photo exists) =====
+              if (status == 'resolved' && resolutionImageUrl.isNotEmpty) ...[
+                Container(
+                  padding: EdgeInsets.all(18.w),
+                  decoration: _cardDecoration(),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        'Resolution Photo',
+                        style: TextStyle(
+                          fontSize: 16.sp,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                      SizedBox(height: 12.h),
+                      GestureDetector(
+                        onTap: () => _openPhotoViewer(
+                          context,
+                          resolutionImageUrl,
+                        ),
+                        child: Container(
+                        height: 220.h,
+                        decoration: BoxDecoration(
+                          color: AppColors.background,
+                          borderRadius: BorderRadius.circular(14.r),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(14.r),
+                          child: Image.network(
+                            resolutionImageUrl,
+                            fit: BoxFit.cover,
+                            loadingBuilder: (context, child, progress) {
+                              if (progress == null) return child;
+                              return const Center(
+                                child: CircularProgressIndicator(),
+                              );
+                            },
+                            errorBuilder: (_, __, ___) =>
+                                _photoPlaceholder(Icons.broken_image),
+                          ),
+                        ),
+                      ),
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(height: 16.h),
+              ],
+
               // ===== DETAILS =====
               Container(
                 padding: EdgeInsets.all(18.w),
@@ -878,6 +939,16 @@ class ReportDetailPage extends StatelessWidget {
     );
   }
 
+  void _openPhotoViewer(BuildContext context, String url) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => _PhotoViewerPage(imageUrl: url),
+      ),
+    );
+  }
+
   Widget _photoPlaceholder(IconData icon) {
     return Container(
       color: AppColors.background,
@@ -940,7 +1011,7 @@ class _StatusTimeline extends StatelessWidget {
   final Map<String, dynamic> report;
   const _StatusTimeline({required this.report});
 
-  static const _order = ['pending', 'in progress', 'resolved'];
+  static const _order = ['pending', 'resolved'];
 
   // Date of the latest history entry for a status.
   dynamic _dateFor(String key) {
@@ -963,15 +1034,15 @@ class _StatusTimeline extends StatelessWidget {
     dynamic currentFallback() =>
         current == 'resolved' ? report['resolvedAt'] : report['updatedAt'];
 
+    // Pending -> Rejected
     if (current == 'rejected') {
-      final inProgress = _dateFor('in progress');
       return [
         _Step('pending', true, _dateFor('pending')),
-        if (inProgress is Timestamp) _Step('in progress', true, inProgress),
         _Step('rejected', true, _dateFor('rejected') ?? currentFallback()),
       ];
     }
 
+    // Pending -> Resolved (resolved step stays grey until it happens)
     final idx = _order.indexOf(current).clamp(0, _order.length - 1);
     return List.generate(_order.length, (i) {
       final key = _order[i];
@@ -985,7 +1056,8 @@ class _StatusTimeline extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final current = (report['status'] ?? 'pending').toString().toLowerCase();
+    final current =
+        normalizeReportStatus((report['status'] ?? 'pending').toString());
     final steps = _steps(current);
 
     return Container(
@@ -1103,6 +1175,48 @@ class _StatusTimeline extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ==================== FULL-SCREEN PHOTO VIEWER ====================
+class _PhotoViewerPage extends StatelessWidget {
+  final String imageUrl;
+  const _PhotoViewerPage({required this.imageUrl});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+      ),
+      body: SafeArea(
+        child: Center(
+          child: InteractiveViewer(
+            minScale: 1,
+            maxScale: 5,
+            child: Image.network(
+              imageUrl,
+              fit: BoxFit.contain,
+              loadingBuilder: (context, child, progress) {
+                if (progress == null) return child;
+                return const Center(
+                  child: CircularProgressIndicator(color: Colors.white),
+                );
+              },
+              errorBuilder: (_, __, ___) => const Icon(
+                Icons.broken_image,
+                size: 64,
+                color: Colors.white54,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

@@ -16,8 +16,6 @@ import 'my_reports.dart';
 // ===== PIN COLORS (same palette as the admin map) =====
 Color _pinColor(String status) {
   switch (status) {
-    case 'in progress':
-      return const Color(0xFF3B82F6);
     case 'resolved':
       return const Color(0xFF22C55E);
     case 'rejected':
@@ -89,14 +87,12 @@ class _MapPageState extends State<MapPage> {
   StreamSubscription<QuerySnapshot>? _reportsSub;
   List<_MapReport> _reports = [];
   String? _reportsError;
-  String _filter = 'active';
+  String _filter = 'pending';
   String? _selectedId;
 
   static const _filters = <(String, String)>[
-    ('active', 'Active'),
-    ('all', 'All'),
     ('pending', 'Pending'),
-    ('in progress', 'In Progress'),
+    ('all', 'All'),
     ('resolved', 'Resolved'),
     ('rejected', 'Rejected'),
   ];
@@ -181,19 +177,13 @@ class _MapPageState extends State<MapPage> {
   }
 
   String _normalizeStatus(dynamic raw) {
-    final s = (raw ?? 'pending').toString().toLowerCase().replaceAll('_', ' ');
-    final status = s.trim();
-
-    const known = ['pending', 'in progress', 'resolved', 'rejected'];
-    return known.contains(status) ? status : 'pending';
+    return normalizeReportStatus((raw ?? 'pending').toString());
   }
 
   bool _matches(String status) {
     switch (_filter) {
       case 'all':
         return true;
-      case 'active':
-        return status == 'pending' || status == 'in progress';
       default:
         return status == _filter;
     }
@@ -205,7 +195,6 @@ class _MapPageState extends State<MapPage> {
 
   bool _matchesKey(String status, String key) {
     if (key == 'all') return true;
-    if (key == 'active') return status == 'pending' || status == 'in progress';
     return status == key;
   }
 
